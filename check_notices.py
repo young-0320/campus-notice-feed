@@ -73,15 +73,19 @@ UA = {"User-Agent": "Mozilla/5.0 (khu-notice-watcher)"}
 # onclick / href 어디에 있든 view('123456') 형태의 ID를 뽑는다
 ID_RE = re.compile(r"view\s*\(\s*['\"](\d{4,})['\"]")
 
-# 데이터 행 중 이 비율 미만만 ID 추출에 성공하면 마크업 변경으로 간주한다
+# 기대 추출 수(전체 N 건과 페이지 크기 중 작은 값)의 이 비율 미만만
+# 실제로 추출되면 마크업 변경으로 간주한다
 PARSE_RATE_MIN = 0.7
 
+# list.do 에 요청하는 페이지당 글 수(userDisplayCount)
+PAGE_SIZE = 30
 
-def fetch_board(board: str, menu: str, count: int = 30):
-    """게시판 목록을 파싱해 (게시글 리스트, 데이터 행 수)를 반환.
 
-    데이터 행 수(candidates)는 파싱 성공률 계산에 쓰인다.
-    후보 대비 추출 성공 비율이 낮으면 마크업 변경을 의심할 수 있다."""
+def fetch_board(board: str, menu: str, count: int = PAGE_SIZE):
+    """게시판 목록을 파싱해 (게시글 리스트, 전체 글 수)를 반환.
+
+    전체 글 수(total)는 사이트가 표시하는 "전체 N 건" 값이다(없으면 None).
+    이 값과 실제 추출 수를 비교해 마크업 변경으로 인한 조용한 실패를 감지한다."""
     params = {
         "menuNo": menu,
         "boardType": "",
@@ -95,37 +99,44 @@ def fetch_board(board: str, menu: str, count: int = 30):
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # candidates = 데이터 행 수(td 2개 이상). 헤더·이미지 배너·"게시물 없음"
-    # 같은 비-데이터 행은 제외한다. rows = 그중 ID 추출에 성공한 행.
-    candidates = 0
-    rows = []
-    for tr in soup.select("tbody tr"):
-        tds = tr.find_all("td")
-        if len(tds) < 2:
-            continue
-        candidates += 1
+    # 두 레이아웃 지원: 표형(BMSR00040 → tbody tr)과 썸네일 카드형
+    # (BMSR00044 → ul.bbs-thumb > li). 표가 있으면 표를, 없으면 썸네일을 쓴다.
+    row_els = soup.select("tbody tr") or soup.select("ul.bbs-thumb > li")
 
-        m = ID_RE.search(str(tr))
+    rows = []
+    for el in row_els:
+        m = ID_RE.search(str(el))
         if not m:
             continue
         pid = m.group(1)
 
-        cells = [td.get_text(" ", strip=True) for td in tds]
+        if el.name == "tr":
+            cells = [td.get_text(" ", strip=True) for td in el.find_all("td")]
+            a = el.find("a")
+            title = a.get_text(" ", strip=True) if a else (cells[1] if len(cells) > 1 else "")
+            # 등록일: 셀 중 날짜 형태(yyyy-mm-dd / yyyy.mm.dd)를 찾는다
+            date = next((c for c in cells
+                         if re.fullmatch(r"\d{4}[-.]\d{2}[-.]\d{2}", c)), "")
+        else:
+            # 썸네일 카드: 제목 strong.t, 날짜 span.date
+            head = el.select_one("strong.t") or el.find("a")
+            title = head.get_text(" ", strip=True) if head else ""
+            d = el.select_one("span.date")
+            date = d.get_text(strip=True) if d else ""
 
-        # 제목은 링크 텍스트가 가장 안전
-        a = tr.find("a")
-        title = a.get_text(" ", strip=True) if a else (cells[1] if len(cells) > 1 else "")
         title = re.sub(r"\s+", " ", title).strip()
-
-        # 등록일: yyyy-mm-dd 또는 yyyy.mm.dd 패턴을 셀에서 찾는다
-        date = ""
-        for c in cells:
-            if re.fullmatch(r"\d{4}[-.]\d{2}[-.]\d{2}", c):
-                date = c
-                break
-
         rows.append({"id": pid, "title": title, "date": date})
-    return rows, candidates
+
+    # 사이트가 알려주는 전체 글 수("전체 N 건") — 건강검사의 기준값.
+    # 빈 게시판(0건)과 파서 고장(글 있는데 0건 추출)을 구분하는 데 쓴다.
+    total = None
+    tot_el = soup.select_one(".bbs-total")
+    if tot_el:
+        mt = re.search(r"([\d,]+)\s*건", tot_el.get_text(" ", strip=True))
+        if mt:
+            total = int(mt.group(1).replace(",", ""))
+
+    return rows, total
 
 
 def load_seen():
@@ -153,19 +164,22 @@ def main():
 
     for name, board, menu in BOARDS:
         try:
-            rows, candidates = fetch_board(board, menu)
+            rows, total = fetch_board(board, menu)
         except Exception as e:  # noqa: BLE001
             errors.append(f"- `{name}` 수집 실패: {e}")
             continue
 
-        # 마크업 변경으로 인한 '조용한 실패' 감지
-        if candidates == 0:
-            errors.append(f"- `{name}` 데이터 행 0개 "
-                          f"(빈 게시판이거나 마크업 변경 의심 — tbody tr 셀렉터 점검)")
-        elif len(rows) / candidates < PARSE_RATE_MIN:
-            errors.append(f"- `{name}` ID 추출 실패율 높음 "
-                          f"(후보 {candidates}행 중 {len(rows)}행만 추출 — "
-                          f"view('id') 패턴 변경 의심)")
+        # 파서 건강검사: 사이트의 "전체 N 건"과 실제 추출 수를 비교해
+        # 마크업 변경으로 인한 '조용한 실패'(에러 없이 0건처럼 보임)를 감지.
+        expected = min(total, PAGE_SIZE) if total is not None else None
+        if expected:  # 0(빈 게시판)·None(총계 미확인)이면 비율 검사 생략
+            if len(rows) < expected * PARSE_RATE_MIN:
+                errors.append(f"- `{name}` 추출 수 급감 "
+                              f"(전체 {total}건인데 이번 페이지 {len(rows)}건만 파싱 — "
+                              f"마크업/셀렉터 변경 의심)")
+        elif total is None and not rows:
+            errors.append(f"- `{name}` 총계·글 모두 파싱 실패 "
+                          f"(마크업 변경 의심 — bbs-total / tbody tr / bbs-thumb 점검)")
 
         known = set(seen.get(name, []))
         fresh = [r for r in rows if r["id"] not in known]

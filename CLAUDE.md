@@ -90,19 +90,22 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
    금지 — 스크립트 인젝션 방지. 워크플로 손댈 때 이 원칙 깨지 말 것.
 2. **키워드는 `keywords.txt`**. 지금은 평문(평평한 목록)이 최적. 가중치·
    카테고리·채널 라우팅이 필요해지면 그때 TOML(`tomllib`, 무의존성)로 승급.
-3. **파서 건강검사** — `fetch_board`가 `(rows, candidates)` 반환. 추출/후보
-   비율 < `PARSE_RATE_MIN`(0.7) 또는 후보 0이면 마크업 변경으로 보고 이슈.
+3. **두 레이아웃 지원** — `fetch_board`가 표형(`tbody tr`)과 썸네일형
+   (`ul.bbs-thumb > li`, 제목 `strong.t`/날짜 `span.date`)을 모두 파싱.
+   `BMSR00040`=표, `BMSR00044`=썸네일. 라이브 검증 완료.
+4. **파서 건강검사(전체건수 기준)** — `fetch_board`가 `(rows, total)` 반환.
+   `total`=사이트의 "전체 N 건"(`.bbs-total`). 기대치 `min(total, PAGE_SIZE)`의
+   `PARSE_RATE_MIN`(0.7) 미만만 추출되면 마크업 변경으로 보고 이슈. 전체
+   0건(빈 게시판)은 검사 생략 → 오탐 없음. (candidates 방식에서 교체됨.)
 
 ## 다음 후보 (우선순위 순, 상세는 log.md "미해결")
 
 1. **`seen.json` 키를 표시명 → 불변값(boardId+menuNo)으로 교체.** 지금은
    게시판 이름만 바꿔도 `known`이 비어 그 게시판 전체가 신규로 폭발하는 버그.
-2. **`menuNo`가 실제로 목록을 분리하는지 검증.** 같은 boardId를 공유하는
-   게시판들이 있어(소식/행사, 학사/취업/기타) 중복 알림 위험. 첫 실제 실행
-   로그로 확인 필요.
-3. `is_hot` 부분일치 오탐 개선(단어 경계).
-4. 알림 채널 다변화(Discord/Telegram 등) — Webhook은 반드시 Actions Secrets로.
-5. (일반화 단계) 게시판/학교 설정을 config로 분리.
+   (`menuNo`가 목록을 분리하는지는 라이브로 검증 완료 — 겹침 0, 중복 알림 없음.)
+2. `is_hot` 부분일치 오탐 개선(단어 경계).
+3. 알림 채널 다변화(Discord/Telegram 등) — Webhook은 반드시 Actions Secrets로.
+4. (일반화 단계) 게시판/학교 설정을 config로 분리.
 
 ## 작업 규칙
 
