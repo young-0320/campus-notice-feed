@@ -42,7 +42,7 @@ jobs:
 
       - name: 신규 공지 이슈 생성
         if: steps.check.outputs.has_new == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           # 제목/본문은 ${{ }}로 인라인하지 않는다. 게시글 텍스트가 신뢰 불가
           # 입력이라, 파이썬이 쓴 파일을 fs로 읽어 스크립트 인젝션을 차단한다.
