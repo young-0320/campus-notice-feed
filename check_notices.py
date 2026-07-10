@@ -196,18 +196,43 @@ def md_escape(text) -> str:
     return re.sub(r"([\\\[\]`])", r"\\\1", str(text))
 
 
+def write_summary(summary):
+    """게시판별 추출 현황을 GITHUB_STEP_SUMMARY(Actions 실행 화면)에 숫자 표로
+    남긴다. 신규 0건인 평범한 실행에서도 게시판별 '추출/전체' 수를 볼 수 있어,
+    건강검사 임계값(PARSE_RATE_MIN)에 다가가는 추출률 드리프트를 경고가 터지기
+    전에 관측할 수 있다. 게시판명(코드 상수)과 숫자만 넣고 게시글 제목 등 신뢰
+    불가 텍스트는 넣지 않으므로 인젝션 표면이 없다."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    lines = [
+        "## KHU EE 공지 감시 — 실행 요약",
+        "",
+        "| 게시판 | 추출 | 전체 | 신규 | 상태 |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for s in summary:
+        lines.append(f"| {s['name']} | {s['extracted']} | {s['total']} "
+                     f"| {s['new']} | {s['status']} |")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     seen = load_seen()
     first_run = not seen
     totals = seen.get(TOTALS_KEY, {})  # 게시판별 지난 성공 실행의 "전체 N 건"
     new_items = []
     errors = []
+    summary = []  # 게시판별 추출 현황(관측성) — GITHUB_STEP_SUMMARY로 출력
 
     for name, board, menu in BOARDS:
         try:
             rows, total = fetch_board(board, menu)
         except Exception as e:  # noqa: BLE001
             errors.append(f"- `{name}` 수집 실패: {md_escape(e)}")
+            summary.append({"name": name, "extracted": "—", "total": "—",
+                            "new": 0, "status": "❌ 수집 실패"})
             continue
 
         # 파서 건강검사: 사이트의 "전체 N 건"과 실제 추출 수를 비교해
@@ -238,13 +263,14 @@ def main():
 
         known = set(seen.get(name, []))
         fresh = [r for r in rows if r["id"] not in known]
+        board_seen = name in seen  # baseline 갱신 전에 캡처(아래에서 seen[name]을 씀)
 
         # 이 게시판을 이전 실행에서 본 적이 있을 때만 신규 알림.
-        # name not in seen = 첫 실행이거나(seen 통째로 빔) 새로 추가된 게시판.
-        # 이 경우 아래 194행에서 baseline만 저장하고 알림은 보내지 않는다.
-        # (전역 first_run 대신 게시판 단위로 판정 — 게시판 추가/부분 실패로
-        #  일부 게시판만 known이 비었을 때 옛 글이 전부 신규로 터지는 것을 방지.)
-        if name in seen:
+        # board_seen=False = 첫 실행이거나 새로 추가된 게시판 → baseline만
+        # 저장하고 알림은 보내지 않는다. (전역 first_run 대신 게시판 단위로
+        # 판정 — 게시판 추가/부분 실패로 일부만 known이 비었을 때 옛 글이
+        # 전부 신규로 터지는 것을 방지.)
+        if board_seen:
             for r in fresh:
                 r["board"] = name
                 r["url"] = VIEW_URL.format(board=board, menu=menu, pid=r["id"])
@@ -255,12 +281,18 @@ def main():
         # 시점에 누락됐던 옛 글이 전부 신규로 오알림된다(log.md의 "파서
         # 깨지면 baseline 저장 안 함" 원칙). 이미 baseline이 있는 게시판은
         # known과의 합집합이라 잃을 게 없으므로 그대로 갱신한다.
-        if name in seen or not parse_suspect:
+        if board_seen or not parse_suspect:
             seen[name] = sorted(known | {r["id"] for r in rows}, key=int, reverse=True)[:200]
+
+        summary.append({"name": name, "extracted": len(rows),
+                        "total": total if total is not None else "—",
+                        "new": len(fresh) if board_seen else 0,
+                        "status": "⚠️ 점검 필요" if parse_suspect else "정상"})
 
     if totals:  # 성공적으로 읽은 total이 하나라도 있을 때만 기록
         seen[TOTALS_KEY] = totals
     save_seen(seen)
+    write_summary(summary)
 
     if first_run:
         if errors:

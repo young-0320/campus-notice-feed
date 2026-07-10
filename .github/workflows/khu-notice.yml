@@ -90,7 +90,21 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add seen.json
-          git diff --staged --quiet || git commit -m "chore: update seen.json"
+          if git diff --staged --quiet; then
+            # seen.json 변화 없음. GitHub은 퍼블릭 레포의 스케줄 워크플로를
+            # 60일 무활동 시 자동 비활성화한다. 방학 등으로 신규가 오래 없으면
+            # 커밋이 끊겨 봇이 조용히 영구 정지될 수 있으므로, 마지막 커밋이
+            # 50일 이상 지났으면 heartbeat 빈 커밋으로 활동을 남긴다(10일 여유).
+            LAST=$(git log -1 --format=%ct)
+            NOW=$(date +%s)
+            if [ $(( (NOW - LAST) / 86400 )) -lt 50 ]; then
+              echo "seen.json 변화 없음 · 최근 커밋 존재 — push 생략"
+              exit 0
+            fi
+            git commit --allow-empty -m "chore: keepalive (스케줄 워크플로 유지)"
+          else
+            git commit -m "chore: update seen.json"
+          fi
           # 이슈는 이미 발행된 뒤라 push가 실패하면 seen.json이 유실되어 다음
           # 실행에서 중복 이슈가 나간다. 사람이 그 사이 main에 커밋하면(예:
           # keywords.txt 웹 편집) non-fast-forward가 되므로, rebase 후 재시도.
