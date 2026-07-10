@@ -81,6 +81,39 @@ TOML(파이썬 3.11+ 내장 `tomllib`, 무의존성)로 승급.
 재실행 시 신규 0건, 특정 게시판을 "전체 157건인데 0건 추출"로 시뮬레이션
 시 "추출 수 급감" 경고 발생 — 모두 통과.
 
+### 5. 테스트 인프라 — parse_board 분리 + fixture 테스트 + CI
+
+**계기:** 테스트 부재가 가장 큰 구조적 공백이었다. `fetch_board`가
+HTTP와 파싱을 한 함수에 묶어놔 CI 테스트가 원천 봉쇄돼 있었고, 4번의
+"라이브 검증 완료"는 재현 불가능한 1회성 기록으로만 남아 있었다.
+
+**바뀐 것:**
+- `fetch_board`에서 파싱 본체를 **`parse_board(html) -> (rows, total)`
+  순수 함수로 분리**(동작 무변경). `fetch_board`는 HTTP+재시도 후
+  `parse_board(r.content)`를 호출하는 껍데기.
+- `tests/fixtures/`에 라이브 검증된 마크업 구조를 본뜬 mock HTML 4종
+  커밋: 표형(`table.html`) / 썸네일형(`thumb.html`) / 빈 게시판
+  (`empty.html`, "게시물 없음" 행 포함) / 셀렉터 깨짐(`broken.html`,
+  전체 152건인데 `onclick`이 `goView()`로 바뀜).
+- `tests/test_parse_board.py` 4케이스: 표형·썸네일 추출(필드 정확성),
+  빈 게시판은 건강검사 생략 조건(오탐 없음), 셀렉터 깨짐은
+  `rate < PARSE_RATE_MIN` 판정에 걸림 — 판정식은 `main()`과 동일한
+  식을 사용.
+- `.github/workflows/ci.yml`: push(main)/PR에서 pytest 실행, 네트워크
+  불필요. 기존 하드닝 원칙 그대로(액션 SHA 고정, `contents: read`,
+  `persist-credentials: false`). pytest도 `requirements-dev.txt`로
+  버전+sha256 해시 고정(pytest+하위 4개; dependabot pip 생태계가 갱신
+  커버). `paths` 필터로 봇의 seen.json 커밋에는 CI가 돌지 않는다.
+
+**근거:** 실사이트가 네트워크 차단 환경에선 접근 불가라 파서 검증이
+매번 1회성 mock 스크립트로 반복돼 왔다. fixture를 레포에 커밋하면 그
+검증이 재현 가능한 회귀 테스트가 되고, 이후 파서 수정(셀렉터 좁히기,
+일반화 리팩터링)을 안전망 위에서 할 수 있다.
+
+**검증:** 새 venv에서 `--require-hashes` 설치 성공(의존성 클로저 완전)
++ pytest 4/4 통과 + 분리 후 `fetch_board` 재시도·`is_error` mock 테스트
+통과(동작 무변경 확인).
+
 ## 미해결 / 다음 후보
 
 - `seen.json` 키가 게시판 **표시명** → 이름만 바꿔도 그 게시판 전체가

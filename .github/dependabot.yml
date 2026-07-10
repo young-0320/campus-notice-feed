@@ -1,0 +1,11 @@
+# SHA 고정한 action과 해시 고정한 pip 의존성의 업데이트를 PR로 제안
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
