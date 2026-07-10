@@ -45,6 +45,21 @@ log.md                              # 설계 변경 기록
 리포지토리 우측 상단 **Watch → All Activity** 로 설정하면
 이슈 생성 시 GitHub 계정 메일로 알림이 온다.
 
+## Discord 알림 받기 (선택)
+
+`DISCORD_WEBHOOK` Secret을 설정하면 신규 공지/수집 실패 알림이
+Discord 채널로도 전송된다. 미설정 시 자동으로 생략된다.
+
+1. Discord 채널 → 톱니바퀴(채널 편집) → **Integrations → Webhooks →
+   New Webhook** → **Copy Webhook URL**
+2. GitHub repo → **Settings → Secrets and variables → Actions →
+   New repository secret** → 이름 `DISCORD_WEBHOOK`, 값에 복사한 URL
+
+> ⚠️ Webhook URL은 **Secret에만** 넣는다. URL을 아는 사람은 누구나 그
+> 채널에 메시지를 보낼 수 있으므로 채팅·커밋·이슈에 절대 붙여넣지 말 것
+> (퍼블릭 레포에서 특히 주의). 유출 시 Discord에서 webhook을 삭제하고
+> 새로 만들면 된다.
+
 ## 로컬 실행
 
 ```bash

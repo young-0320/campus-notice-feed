@@ -38,6 +38,10 @@ jobs:
 
       - name: 공지 확인
         id: check
+        env:
+          # Discord 알림(선택). Secret 미설정이면 빈 값 → 파이썬이 전송 생략.
+          # URL은 Secret에만 존재 — 워크플로/코드/로그에 평문으로 두지 않는다.
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: python check_notices.py
 
       - name: 신규 공지 이슈 생성

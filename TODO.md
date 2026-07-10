@@ -13,7 +13,6 @@
   github-script v7→v9). 각 changelog 확인 후 병합(병합 시 고정 SHA가 새
   버전 것으로 갱신됨). 메이저 점프라 묻지 말고 병합 금지. PR 노이즈가 많으면
   `dependabot.yml`에 grouping이나 업데이트 상한 설정 고려.
-
 - [ ] **(보류) 레이아웃 셀렉터 좁히기 — item 7** — `check_notices.py`
   `parse_board`에 TODO 주석 있음. `select("tbody tr")`가 문서 전역이라
   무관한 테이블에 걸릴 수 있음. 정확한 리스트 컨테이너 클래스는 **라이브
@@ -24,29 +23,28 @@
 
 ## 앞으로의 방향성 (미래 계획 — 오늘 스코프 아님)
 
-### 1. seen.json 키를 표시명 → 불변값(boardId+menuNo)
-item 3 수정으로 "게시판 이름 변경 시 옛 글 폭발"은 이미 막혔다. 다만 이름을
-바꾸면 옛 키가 찌꺼기로 남고 그 게시판 알림 이력이 초기화되는 문제는 남음.
-**일반화의 선행 조건** — config에서 게시판 이름을 자유롭게 바꾸려면 필수.
+### ~~1. seen.json 키를 표시명 → 불변값(boardId+menuNo)~~ ✅ 완료 (2026-07-11)
 
-### 2. 일반화 (KHU 전용 → 다학과/다학교)
+`feat/stable-keys-discord` 브랜치에서 구현. `board_key()` + 런타임 멱등
+이관(`migrate_seen()`). 상세는 log.md 6번.
+
+### 2. 일반화 (KHU 전용 → 타학과/타학교)
+
 - 1단계(같은 CMS 학과 추가): 데이터만 `site.toml`로 분리
   (base / title_prefix / boards). `tomllib` 무의존. 워크플로 `name`·파일명도
   이때 중립화. keywords.txt는 평문 유지.
 - 2단계(다른 CMS 학교 추가 시에야): `parse_board`를 사이트 어댑터
   (셀렉터 + ID_RE + URL 템플릿 묶음)로 추상화. 지금 미리 하면 과설계.
 
-### 3. 알림 채널 다변화 (Discord / Telegram)
-현재 알림은 GitHub 메일 하나뿐.
-- **보안 전제**(구현 전 log.md에 명문화): Webhook URL은 Actions Secrets로만
-  주입, 전송은 파이썬 내 `requests.post(json=...)`로(JSON 직렬화가 이스케이프
-  보장, 셸 미경유 — 파일 전달 원칙의 자연스러운 확장). 실패 시 URL이 예외
-  메시지에 안 찍히게 처리.
-- **웹훅 준비(사용자 몫)**: Discord 채널 → 톱니바퀴 → Integrations →
-  Webhooks → New Webhook → URL 복사 → GitHub repo Settings → Secrets and
-  variables → Actions → New repository secret(이름 예: `DISCORD_WEBHOOK`).
-  URL은 **Secret에만** 넣고 채팅/커밋에 붙여넣지 말 것(퍼블릭 노출 금지).
+### 3. 알림 채널 다변화 (Discord / Telegram) — Discord ✅ 완료 (2026-07-11)
+
+Discord는 `feat/stable-keys-discord` 브랜치에서 구현(보안 전제는 log.md
+7번에 명문화, 웹훅 준비 절차는 README로 이동). Telegram 등은 남음.
+
+- [ ] **웹훅 준비(사용자 몫)**: `DISCORD_WEBHOOK` Secret 등록 — 절차는
+  README "Discord 알림 받기" 참고. URL은 **Secret에만**.
 
 ### 4. 기타 아이디어
+
 - 온디맨드 digest(원할 때 최근 공지 모아보기).
 - 에러/경고 이슈는 관리자에게만 분리 라우팅(정상 공지와 채널 구분).

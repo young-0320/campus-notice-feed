@@ -65,7 +65,7 @@ VIEW_URL = BASE + "/ee25/user/bbs/{board}/view.do?menuNo={menu}&boardId={pid}"
 SEEN_PATH = Path(__file__).with_name("seen.json")
 
 # seen.json 안에서 게시판별 "마지막으로 성공한 전체 건수(.bbs-total)"를 담는
-# 메타 키. 게시판 표시명과 겹치지 않게 밑줄로 감쌌다. .bbs-total 셀렉터가
+# 메타 키. 게시판 키(boardId:menuNo)와 겹치지 않게 밑줄로 감쌌다. .bbs-total 셀렉터가
 # 조용히 깨져 total 파싱만 실패한 경우(rows는 여전히 잡혀 비율 검사가 통째로
 # 스킵되던 사각지대)를 이전 실행값과 비교해 감지하는 데 쓴다.
 TOTALS_KEY = "__totals__"
@@ -172,6 +172,27 @@ def fetch_board(board: str, menu: str, count: int = PAGE_SIZE):
     return parse_board(r.content)
 
 
+def board_key(board: str, menu: str) -> str:
+    """seen.json 키. 표시명은 config에서 자유롭게 바뀔 수 있으므로
+    불변값(boardId+menuNo) 조합을 쓴다."""
+    return f"{board}:{menu}"
+
+
+def migrate_seen(seen):
+    """구버전 seen.json(게시판 표시명 키)을 불변 키(boardId:menuNo)로 이관.
+    표시명 키는 이름만 바꿔도 알림 이력이 초기화되고 옛 키가 찌꺼기로
+    남는 문제가 있었다. 현재 BOARDS의 표시명과 일치하는 옛 키를 새 키로
+    옮기며(새 키가 이미 있으면 옛 키만 제거), 이관 후에는 no-op."""
+    for name, board, menu in BOARDS:
+        if name in seen:
+            seen.setdefault(board_key(board, menu), seen.pop(name))
+    totals = seen.get(TOTALS_KEY, {})
+    for name, board, menu in BOARDS:
+        if name in totals:
+            totals.setdefault(board_key(board, menu), totals.pop(name))
+    return seen
+
+
 def load_seen():
     if SEEN_PATH.exists():
         return json.loads(SEEN_PATH.read_text(encoding="utf-8"))
@@ -219,7 +240,7 @@ def write_summary(summary):
 
 
 def main():
-    seen = load_seen()
+    seen = migrate_seen(load_seen())
     first_run = not seen
     totals = seen.get(TOTALS_KEY, {})  # 게시판별 지난 성공 실행의 "전체 N 건"
     new_items = []
@@ -227,6 +248,7 @@ def main():
     summary = []  # 게시판별 추출 현황(관측성) — GITHUB_STEP_SUMMARY로 출력
 
     for name, board, menu in BOARDS:
+        key = board_key(board, menu)
         try:
             rows, total = fetch_board(board, menu)
         except Exception as e:  # noqa: BLE001
@@ -237,10 +259,10 @@ def main():
 
         # 파서 건강검사: 사이트의 "전체 N 건"과 실제 추출 수를 비교해
         # 마크업 변경으로 인한 '조용한 실패'(에러 없이 0건처럼 보임)를 감지.
-        prev_total = totals.get(name)
+        prev_total = totals.get(key)
         parse_suspect = False  # 건강검사에 걸림 = 이번 추출본을 신뢰할 수 없음
         if total is not None:
-            totals[name] = total  # 성공한 전체 건수 기록(다음 실행의 비교 기준)
+            totals[key] = total  # 성공한 전체 건수 기록(다음 실행의 비교 기준)
             expected = min(total, PAGE_SIZE)
             if expected and len(rows) < expected * PARSE_RATE_MIN:
                 parse_suspect = True
@@ -261,9 +283,9 @@ def main():
             errors.append(f"- `{name}` 총계·글 모두 파싱 실패 "
                           f"(마크업 변경 의심 — bbs-total / tbody tr / bbs-thumb 점검)")
 
-        known = set(seen.get(name, []))
+        known = set(seen.get(key, []))
         fresh = [r for r in rows if r["id"] not in known]
-        board_seen = name in seen  # baseline 갱신 전에 캡처(아래에서 seen[name]을 씀)
+        board_seen = key in seen  # baseline 갱신 전에 캡처(아래에서 seen[key]를 씀)
 
         # 이 게시판을 이전 실행에서 본 적이 있을 때만 신규 알림.
         # board_seen=False = 첫 실행이거나 새로 추가된 게시판 → baseline만
@@ -282,7 +304,7 @@ def main():
         # 깨지면 baseline 저장 안 함" 원칙). 이미 baseline이 있는 게시판은
         # known과의 합집합이라 잃을 게 없으므로 그대로 갱신한다.
         if board_seen or not parse_suspect:
-            seen[name] = sorted(known | {r["id"] for r in rows}, key=int, reverse=True)[:200]
+            seen[key] = sorted(known | {r["id"] for r in rows}, key=int, reverse=True)[:200]
 
         summary.append({"name": name, "extracted": len(rows),
                         "total": total if total is not None else "—",
@@ -343,6 +365,36 @@ def main():
     write_output(has_new=True, title=title, body=body)
 
 
+def notify_discord(title: str, body: str):
+    """Discord webhook 알림(선택). DISCORD_WEBHOOK env(Actions Secret에서만
+    주입)가 비어 있으면 아무것도 하지 않는다.
+
+    보안 전제(log.md 참고): URL은 Secret → env로만 전달되고 코드·로그·예외
+    메시지 어디에도 남기지 않는다. 전송은 requests.post(json=...)로 — JSON
+    직렬화가 이스케이프를 보장하고 셸을 거치지 않는다(파일 전달 원칙의 확장).
+    본문의 마크다운 링크는 embed description에서만 렌더링되므로 embed를 쓴다
+    (plain content는 [텍스트](URL)를 문자 그대로 노출).
+
+    실패는 경고만 남기고 삼킨다 — 주 채널(GitHub Issue)은 이 함수 이후의
+    워크플로 스텝이라, 여기서 예외가 새면 주 채널까지 죽는다. requests 예외
+    메시지에는 URL이 포함되므로 예외 타입과 상태 코드만 출력한다."""
+    url = os.environ.get("DISCORD_WEBHOOK", "").strip()
+    if not url:
+        return
+    payload = {"embeds": [{
+        "title": title[:256],          # Discord embed title 제한
+        "description": body[:4096],    # embed description 제한
+    }]}
+    try:
+        r = requests.post(url, json=payload, timeout=15)
+        r.raise_for_status()
+        print("Discord 알림 전송 완료")
+    except requests.RequestException as e:
+        status = getattr(getattr(e, "response", None), "status_code", "")
+        print(f"Discord 알림 실패({type(e).__name__} {status}) — "
+              f"이슈 생성은 계속 진행", file=sys.stderr)
+
+
 def write_output(has_new: bool, title: str, body: str, is_error: bool = False):
     """불리언 플래그만 GITHUB_OUTPUT으로 내보내고,
     제목/본문은 파일로 쓴다. 워크플로는 fs.readFileSync로 파일을 읽으므로
@@ -352,6 +404,7 @@ def write_output(has_new: bool, title: str, body: str, is_error: bool = False):
     if has_new:
         TITLE_PATH.write_text(title + "\n", encoding="utf-8")
         BODY_PATH.write_text(body + "\n", encoding="utf-8")
+        notify_discord(title, body)
 
     out = os.environ.get("GITHUB_OUTPUT")
     if not out:

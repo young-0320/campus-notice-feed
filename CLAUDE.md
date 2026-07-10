@@ -97,15 +97,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
    `total`=사이트의 "전체 N 건"(`.bbs-total`). 기대치 `min(total, PAGE_SIZE)`의
    `PARSE_RATE_MIN`(0.7) 미만만 추출되면 마크업 변경으로 보고 이슈. 전체
    0건(빈 게시판)은 검사 생략 → 오탐 없음. (candidates 방식에서 교체됨.)
+5. **seen.json 키는 불변값(`boardId:menuNo`)** — `board_key()`로 생성.
+   구버전(표시명 키) 파일은 `migrate_seen()`이 런타임에 멱등 이관.
+   레포의 seen.json을 직접 고치지 말 것(봇 커밋과 충돌).
+6. **Discord 알림은 선택 기능** — `DISCORD_WEBHOOK` Secret → env로만 주입,
+   `requests.post(json=...)` 전송, 실패는 삼키고 예외 타입+상태코드만 출력
+   (URL이 예외 메시지에 포함되므로 예외 본문 출력 금지).
 
 ## 다음 후보 (우선순위 순, 상세는 log.md "미해결")
 
-1. **`seen.json` 키를 표시명 → 불변값(boardId+menuNo)으로 교체.** 지금은
-   게시판 이름만 바꿔도 `known`이 비어 그 게시판 전체가 신규로 폭발하는 버그.
-   (`menuNo`가 목록을 분리하는지는 라이브로 검증 완료 — 겹침 0, 중복 알림 없음.)
-2. `is_hot` 부분일치 오탐 개선(단어 경계).
-3. 알림 채널 다변화(Discord/Telegram 등) — Webhook은 반드시 Actions Secrets로.
-4. (일반화 단계) 게시판/학교 설정을 config로 분리.
+1. `is_hot` 부분일치 오탐 개선(단어 경계).
+2. 알림 채널 추가(Telegram 등) — Webhook은 반드시 Actions Secrets로.
+3. (일반화 단계) 게시판/학교 설정을 config로 분리(`site.toml`, `tomllib`).
 
 ## 작업 규칙
 
