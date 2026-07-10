@@ -73,9 +73,15 @@ UA = {"User-Agent": "Mozilla/5.0 (khu-notice-watcher)"}
 # onclick / href 어디에 있든 view('123456') 형태의 ID를 뽑는다
 ID_RE = re.compile(r"view\s*\(\s*['\"](\d{4,})['\"]")
 
+# 데이터 행 중 이 비율 미만만 ID 추출에 성공하면 마크업 변경으로 간주한다
+PARSE_RATE_MIN = 0.7
+
 
 def fetch_board(board: str, menu: str, count: int = 30):
-    """게시판 목록에서 (게시글ID, 제목, 등록일) 리스트를 반환."""
+    """게시판 목록을 파싱해 (게시글 리스트, 데이터 행 수)를 반환.
+
+    데이터 행 수(candidates)는 파싱 성공률 계산에 쓰인다.
+    후보 대비 추출 성공 비율이 낮으면 마크업 변경을 의심할 수 있다."""
     params = {
         "menuNo": menu,
         "boardType": "",
@@ -89,17 +95,22 @@ def fetch_board(board: str, menu: str, count: int = 30):
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
+    # candidates = 데이터 행 수(td 2개 이상). 헤더·이미지 배너·"게시물 없음"
+    # 같은 비-데이터 행은 제외한다. rows = 그중 ID 추출에 성공한 행.
+    candidates = 0
     rows = []
     for tr in soup.select("tbody tr"):
-        raw = str(tr)
-        m = ID_RE.search(raw)
+        tds = tr.find_all("td")
+        if len(tds) < 2:
+            continue
+        candidates += 1
+
+        m = ID_RE.search(str(tr))
         if not m:
             continue
         pid = m.group(1)
 
-        cells = [td.get_text(" ", strip=True) for td in tr.find_all("td")]
-        if not cells:
-            continue
+        cells = [td.get_text(" ", strip=True) for td in tds]
 
         # 제목은 링크 텍스트가 가장 안전
         a = tr.find("a")
@@ -114,7 +125,7 @@ def fetch_board(board: str, menu: str, count: int = 30):
                 break
 
         rows.append({"id": pid, "title": title, "date": date})
-    return rows
+    return rows, candidates
 
 
 def load_seen():
@@ -142,10 +153,19 @@ def main():
 
     for name, board, menu in BOARDS:
         try:
-            rows = fetch_board(board, menu)
+            rows, candidates = fetch_board(board, menu)
         except Exception as e:  # noqa: BLE001
             errors.append(f"- `{name}` 수집 실패: {e}")
             continue
+
+        # 마크업 변경으로 인한 '조용한 실패' 감지
+        if candidates == 0:
+            errors.append(f"- `{name}` 데이터 행 0개 "
+                          f"(빈 게시판이거나 마크업 변경 의심 — tbody tr 셀렉터 점검)")
+        elif len(rows) / candidates < PARSE_RATE_MIN:
+            errors.append(f"- `{name}` ID 추출 실패율 높음 "
+                          f"(후보 {candidates}행 중 {len(rows)}행만 추출 — "
+                          f"view('id') 패턴 변경 의심)")
 
         known = set(seen.get(name, []))
         fresh = [r for r in rows if r["id"] not in known]
@@ -162,8 +182,13 @@ def main():
     save_seen(seen)
 
     if first_run:
-        print("첫 실행: 기존 글을 baseline으로 저장했습니다. 신규 알림 없음.")
-        write_output(has_new=False, title="", body="")
+        if errors:
+            write_output(has_new=True,
+                         title="[KHU EE] 첫 실행 — 파서 점검 필요",
+                         body="\n".join(errors))
+        else:
+            print("첫 실행: 기존 글을 baseline으로 저장했습니다. 신규 알림 없음.")
+            write_output(has_new=False, title="", body="")
         return
 
     if errors and not new_items:
