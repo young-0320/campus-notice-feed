@@ -27,12 +27,36 @@ BOARDS = [
     ("기타공지",         "BMSR00040", "21700022"),
 ]
 
-# 제목에 이 단어가 있으면 ⭐ 표시
-KEYWORDS = [
+# 제목에 이 단어가 있으면 ⭐ 표시.
+# keywords.txt(스크립트와 같은 폴더)가 있으면 그 파일을 우선 사용한다.
+# 파일이 없거나 비어 있으면 아래 기본값으로 폴백한다.
+KEYWORDS_PATH = Path(__file__).with_name("keywords.txt")
+
+DEFAULT_KEYWORDS = [
     "반도체", "공정", "FAB", "팹", "소자", "실습", "인턴", "탐방",
     "설계", "경진", "챌린지", "공모", "채용", "교육", "수료",
     "종합설계", "졸업", "장학", "IDEC", "삼성", "하이닉스",
 ]
+
+
+def load_keywords():
+    """keywords.txt 를 읽어 키워드 리스트를 만든다.
+    - 한 줄에 키워드 하나
+    - '#' 로 시작하는 줄과 빈 줄은 무시
+    파일이 없거나 유효 키워드가 하나도 없으면 DEFAULT_KEYWORDS 반환."""
+    if KEYWORDS_PATH.exists():
+        words = []
+        for line in KEYWORDS_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            words.append(line)
+        if words:
+            return words
+    return DEFAULT_KEYWORDS
+
+
+KEYWORDS = load_keywords()
 
 LIST_URL = BASE + "/ee25/user/bbs/{board}/list.do"
 VIEW_URL = BASE + "/ee25/user/bbs/{board}/view.do?menuNo={menu}&boardId={pid}"
