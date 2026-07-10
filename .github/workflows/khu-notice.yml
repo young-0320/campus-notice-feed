@@ -21,7 +21,7 @@ jobs:
     # action은 mutable tag 대신 커밋 SHA로 고정한다(태그 오염 대비).
     # 버전 업데이트는 dependabot이 PR로 제안한다.
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           # push 토큰을 .git/config에 남기지 않는다. pip 의존성 등 job 안에서
           # 실행되는 서드파티 코드가 토큰을 읽지 못하게 하고, push 스텝에서만
