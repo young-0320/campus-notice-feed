@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# CI-generated issue artifacts (본문/제목은 실행 때마다 새로 생성)
+issue_body.md
+issue_title.txt
+
+# Secrets / local env (절대 커밋 금지)
+.env
+*.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# NOTE: seen.json 은 워크플로가 커밋하는 상태 파일이므로 무시하지 않는다.
