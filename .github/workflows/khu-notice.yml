@@ -1,0 +1,59 @@
+name: KHU EE 공지 감시
+
+on:
+  schedule:
+    # 3일마다 00:00 UTC = 09:00 KST
+    - cron: "0 0 */3 * *"
+  workflow_dispatch:   # 수동 실행 버튼
+
+# 스케줄 실행과 수동 실행이 겹쳐 seen.json push가 충돌하는 것을 방지
+concurrency:
+  group: notice-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # seen.json 커밋
+  issues: write     # 신규 공지 이슈 생성
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 의존성 설치
+        run: pip install requests beautifulsoup4
+
+      - name: 공지 확인
+        id: check
+        run: python check_notices.py
+
+      - name: 신규 공지 이슈 생성
+        if: steps.check.outputs.has_new == 'true'
+        uses: actions/github-script@v7
+        with:
+          # 제목/본문은 ${{ }}로 인라인하지 않는다. 게시글 텍스트가 신뢰 불가
+          # 입력이라, 파이썬이 쓴 파일을 fs로 읽어 스크립트 인젝션을 차단한다.
+          script: |
+            const fs = require('fs');
+            const title = fs.readFileSync('issue_title.txt', 'utf8').trim();
+            const body = fs.readFileSync('issue_body.md', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['notice'],
+            });
+
+      - name: seen.json 커밋
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add seen.json
+          git diff --staged --quiet || git commit -m "chore: update seen.json"
+          git push
