@@ -70,6 +70,12 @@ SEEN_PATH = Path(__file__).with_name("seen.json")
 # 스킵되던 사각지대)를 이전 실행값과 비교해 감지하는 데 쓴다.
 TOTALS_KEY = "__totals__"
 
+# 직전 실행에서 나간 오류 이슈의 제목을 담는 메타 키. GitHub 쪽은 동일 제목
+# open 이슈에 댓글로 합쳐 반복 이슈를 막지만 Discord엔 그런 dedup이 없어,
+# 파서가 고장 난 동안 3일마다 같은 알림이 반복된다. 같은 제목의 오류가
+# 연속되면 Discord 전송만 생략한다(이슈/댓글은 그대로).
+LAST_ERROR_KEY = "__last_error__"
+
 # 이슈 제목/본문은 GITHUB_OUTPUT(heredoc)이나 ${{ }} 치환을 거치지 않고
 # 파일로 넘긴다. 게시글 텍스트가 신뢰 불가 입력이라 스크립트 인젝션을 막기 위함.
 TITLE_PATH = Path(__file__).with_name("issue_title.txt")
@@ -182,14 +188,22 @@ def migrate_seen(seen):
     """구버전 seen.json(게시판 표시명 키)을 불변 키(boardId:menuNo)로 이관.
     표시명 키는 이름만 바꿔도 알림 이력이 초기화되고 옛 키가 찌꺼기로
     남는 문제가 있었다. 현재 BOARDS의 표시명과 일치하는 옛 키를 새 키로
-    옮기며(새 키가 이미 있으면 옛 키만 제거), 이관 후에는 no-op."""
-    for name, board, menu in BOARDS:
-        if name in seen:
-            seen.setdefault(board_key(board, menu), seen.pop(name))
+    옮기며, 이관 후에는 no-op.
+
+    두 형식이 공존하면(예: 이관 커밋 후 revert됐다가 다시 roll-forward)
+    이력을 합집합으로 병합한다 — 어느 쪽을 버리든 그 기간에 알림된 글이
+    known에서 빠져 중복 알림이 나기 때문. totals는 카운트 하나라 병합할 게
+    없어 최신값(새 키)을 유지한다."""
     totals = seen.get(TOTALS_KEY, {})
     for name, board, menu in BOARDS:
+        key = board_key(board, menu)
+        if name in seen:
+            old = seen.pop(name)
+            cur = seen.get(key)
+            seen[key] = (sorted(set(old) | set(cur), key=int, reverse=True)[:200]
+                         if cur else old)
         if name in totals:
-            totals.setdefault(board_key(board, menu), totals.pop(name))
+            totals.setdefault(key, totals.pop(name))
     return seen
 
 
@@ -311,6 +325,19 @@ def main():
                         "new": len(fresh) if board_seen else 0,
                         "status": "⚠️ 점검 필요" if parse_suspect else "정상"})
 
+    # 이번 실행이 오류 이슈로 끝나는지 판정하고(제목 고정), 직전 실행과 같은
+    # 오류의 반복인지 seen.json 메타 키로 확인한다(LAST_ERROR_KEY 주석 참고).
+    # 오류가 해소되면(정상/신규 실행) 마커를 지워 다음 오류는 다시 알린다.
+    error_title = None
+    if errors and (first_run or not new_items):
+        error_title = ("[KHU EE] 첫 실행 — 파서 점검 필요" if first_run
+                       else "[KHU EE] 공지 수집 실패")
+    error_repeat = error_title is not None and seen.get(LAST_ERROR_KEY) == error_title
+    if error_title:
+        seen[LAST_ERROR_KEY] = error_title
+    else:
+        seen.pop(LAST_ERROR_KEY, None)
+
     if totals:  # 성공적으로 읽은 total이 하나라도 있을 때만 기록
         seen[TOTALS_KEY] = totals
     save_seen(seen)
@@ -318,18 +345,18 @@ def main():
 
     if first_run:
         if errors:
-            write_output(has_new=True,
-                         title="[KHU EE] 첫 실행 — 파서 점검 필요",
-                         body="\n".join(errors), is_error=True)
+            write_output(has_new=True, title=error_title,
+                         body="\n".join(errors), is_error=True,
+                         notify=not error_repeat)
         else:
             print("첫 실행: 기존 글을 baseline으로 저장했습니다. 신규 알림 없음.")
             write_output(has_new=False, title="", body="")
         return
 
     if errors and not new_items:
-        write_output(has_new=True,
-                     title="[KHU EE] 공지 수집 실패",
-                     body="\n".join(errors), is_error=True)
+        write_output(has_new=True, title=error_title,
+                     body="\n".join(errors), is_error=True,
+                     notify=not error_repeat)
         return
 
     if not new_items:
@@ -381,9 +408,19 @@ def notify_discord(title: str, body: str):
     url = os.environ.get("DISCORD_WEBHOOK", "").strip()
     if not url:
         return
+    # embed description 제한(4096자) 초과분은 줄 경계에서 자르고 생략을
+    # 표시한다 — 문자 단위로 자르면 마크다운 링크가 반쪽 나고, 표시 없이
+    # 자르면 잘린 공지의 존재 자체가 Discord에서 사라진다.
+    desc = body
+    if len(desc) > 4096:
+        note = "\n\n…(길이 제한 초과로 일부 생략 — 전체 목록은 GitHub 이슈 참고)"
+        cut = desc.rfind("\n", 0, 4096 - len(note))
+        if cut <= 0:  # 줄바꿈이 없는 비정상 본문이면 문자 단위로라도 자른다
+            cut = 4096 - len(note)
+        desc = desc[:cut] + note
     payload = {"embeds": [{
-        "title": title[:256],          # Discord embed title 제한
-        "description": body[:4096],    # embed description 제한
+        "title": title[:256],  # embed title 제한(봇 생성 제목이라 실제론 짧음)
+        "description": desc,
     }]}
     try:
         r = requests.post(url, json=payload, timeout=15)
@@ -395,16 +432,19 @@ def notify_discord(title: str, body: str):
               f"이슈 생성은 계속 진행", file=sys.stderr)
 
 
-def write_output(has_new: bool, title: str, body: str, is_error: bool = False):
+def write_output(has_new: bool, title: str, body: str, is_error: bool = False,
+                 notify: bool = True):
     """불리언 플래그만 GITHUB_OUTPUT으로 내보내고,
     제목/본문은 파일로 쓴다. 워크플로는 fs.readFileSync로 파일을 읽으므로
     신뢰 불가한 게시글 텍스트가 ${{ }} 치환·heredoc 파싱을 전혀 거치지 않는다.
     is_error: 수집 실패 등 제목이 고정인 이슈 — 워크플로가 이 플래그를 보고
-    동일 제목의 open 이슈가 있으면 새 이슈 대신 댓글을 단다(중복 방지)."""
+    동일 제목의 open 이슈가 있으면 새 이슈 대신 댓글을 단다(중복 방지).
+    notify: False면 Discord 전송만 생략(반복 오류 dedup용 — 이슈는 그대로)."""
     if has_new:
         TITLE_PATH.write_text(title + "\n", encoding="utf-8")
         BODY_PATH.write_text(body + "\n", encoding="utf-8")
-        notify_discord(title, body)
+        if notify:
+            notify_discord(title, body)
 
     out = os.environ.get("GITHUB_OUTPUT")
     if not out:

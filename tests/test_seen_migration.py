@@ -25,11 +25,15 @@ def test_new_format_is_noop():
     assert migrate_seen(dict(cur)) == cur
 
 
-def test_old_key_dropped_when_new_key_exists():
-    """새 키가 이미 있으면 새 키의 이력을 유지하고 옛 키(찌꺼기)만 제거."""
-    seen = migrate_seen({NAME: ["1"], KEY: ["100"]})
-    assert seen[KEY] == ["100"]
+def test_conflict_merges_history():
+    """두 형식 공존(이관 후 revert→재이관): 어느 쪽 이력도 버리지 않고
+    합집합으로 병합 — 버리면 그 기간에 알림된 글이 known에서 빠져
+    중복 알림이 난다. totals는 최신값(새 키) 유지."""
+    seen = migrate_seen({NAME: ["1", "50"], KEY: ["100", "50"],
+                         TOTALS_KEY: {NAME: 10, KEY: 42}})
+    assert seen[KEY] == ["100", "50", "1"]  # 합집합, int 내림차순
     assert NAME not in seen
+    assert seen[TOTALS_KEY] == {KEY: 42}
 
 
 def test_empty_seen():

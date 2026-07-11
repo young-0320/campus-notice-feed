@@ -39,8 +39,35 @@ def test_sends_embed_payload(monkeypatch):
     assert url == FAKE_URL
     embed = payload["embeds"][0]
     assert embed["title"] == "T" * 256
-    assert embed["description"] == "B" * 4096
+    assert len(embed["description"]) <= 4096
+    assert embed["description"].endswith("GitHub 이슈 참고)")
     assert timeout
+
+
+def test_truncation_cuts_at_line_boundary(monkeypatch):
+    """4096자 초과 본문은 줄 경계에서 잘라야 한다 — 문자 단위로 자르면
+    마크다운 링크가 반쪽 난다."""
+    monkeypatch.setenv("DISCORD_WEBHOOK", FAKE_URL)
+    sent = []
+
+    class OkResp:
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(check_notices.requests, "post",
+                        lambda url, json=None, timeout=None: (sent.append(json), OkResp())[1])
+    body = "\n".join(f"- [게시판] [공지 {i}](https://ee.khu.ac.kr/view?id={i})"
+                     for i in range(200))
+    assert len(body) > 4096
+    notify_discord("제목", body)
+
+    desc = sent[0]["embeds"][0]["description"]
+    assert len(desc) <= 4096
+    kept, _, note = desc.rpartition("\n\n")
+    assert note.startswith("…(")
+    # 잘린 지점까지는 원문과 동일한 '완전한 줄'이어야 한다(반쪽 링크 금지)
+    assert body.startswith(kept)
+    assert body[len(kept)] == "\n"
 
 
 def test_failure_swallowed_and_url_not_leaked(monkeypatch, capsys):
