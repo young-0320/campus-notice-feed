@@ -368,6 +368,8 @@ def write_summary(summary):
 
 
 def main():
+    if os.environ.get("TEST_NOTIFY") == "true":
+        return send_test_notification()
     seen = migrate_seen(load_seen())
     first_run = not seen
     totals = seen.get(TOTALS_KEY, {})  # 게시판별 지난 성공 실행의 "전체 N 건"
@@ -551,10 +553,12 @@ def notify_discord(title: str, body: str):
 
     실패는 경고만 남기고 삼킨다 — 주 채널(GitHub Issue)은 이 함수 이후의
     워크플로 스텝이라, 여기서 예외가 새면 주 채널까지 죽는다. requests 예외
-    메시지에는 URL이 포함되므로 예외 타입과 상태 코드만 출력한다."""
+    메시지에는 URL이 포함되므로 예외 타입과 상태 코드만 출력한다.
+
+    반환: 전송 성공 True / 실패 False / 미설정 None (테스트 발송이 결과를 본다)."""
     url = os.environ.get("DISCORD_WEBHOOK", "").strip()
     if not url:
-        return
+        return None
     desc = truncate_lines(  # embed description 제한(4096자)
         body, 4096, "\n\n…(길이 제한 초과로 일부 생략 — 전체 목록은 GitHub 이슈 참고)")
     payload = {"embeds": [{
@@ -565,10 +569,12 @@ def notify_discord(title: str, body: str):
         r = requests.post(url, json=payload, timeout=15)
         r.raise_for_status()
         print("Discord 알림 전송 완료")
+        return True
     except requests.RequestException as e:
         status = getattr(getattr(e, "response", None), "status_code", "")
         print(f"Discord 알림 실패({type(e).__name__} {status}) — "
               f"이슈 생성은 계속 진행", file=sys.stderr)
+        return False
 
 
 # GitHub 이슈 본문 한도는 65536자. 여유를 두고 자른다.
@@ -624,12 +630,12 @@ def notify_email(title: str, body: str):
 
     실패 처리는 notify_discord와 같은 이유·같은 방식: 주 채널(GitHub Issue)을
     죽이지 않게 삼키고, 예외 메시지에는 주소·서버 응답이 들어 있으므로 예외
-    타입만 출력한다."""
+    타입만 출력한다. 반환값은 notify_discord 와 같다."""
     user = os.environ.get("SMTP_USER", "").strip()
     password = os.environ.get("SMTP_PASSWORD", "").strip()
     to = [a for a in re.split(r"[,\s]+", os.environ.get("MAIL_TO", "")) if a]
     if not (user and password and to):
-        return
+        return None
     msg = EmailMessage()
     msg["Subject"] = title
     msg["From"] = user
@@ -641,9 +647,32 @@ def notify_email(title: str, body: str):
             smtp.login(user, password)
             smtp.send_message(msg, from_addr=user, to_addrs=to)
         print(f"이메일 알림 전송 완료 ({len(to)}명)")
+        return True
     except (smtplib.SMTPException, OSError) as e:
         print(f"이메일 알림 실패({type(e).__name__}) — 이슈 생성은 계속 진행",
               file=sys.stderr)
+        return False
+
+
+def send_test_notification():
+    """알림 채널 설정 확인용 테스트 발송. 워크플로를 수동 실행할 때
+    '알림 테스트' 를 체크하면(TEST_NOTIFY=true) 공지 확인 대신 이것만 돈다.
+    게시판을 읽지 않고 seen.json·이슈도 건드리지 않는다.
+    설정된 채널 중 하나라도 전송에 실패하면 종료 코드 1 — 실제 알림과 달리
+    여기서는 실패가 눈에 띄어야 한다(Actions 실행이 빨갛게 표시된다)."""
+    sample = {"college": "전자정보대학", "site": "전자공학", "board": "학사/장학",
+              "title": "(예시) 공지 제목이 여기에 나옵니다",
+              "url": "https://ee.khu.ac.kr", "date": "2026-01-01", "also": []}
+    title = "공지 알림 테스트"
+    body = ("알림 설정 확인용 테스트입니다. 실제 공지는 아래 형식으로 옵니다.\n\n"
+            + item_line(sample))
+    results = {"Discord": notify_discord(title, body),
+               "이메일": notify_email(title, body)}
+    for name, ok in results.items():
+        if ok is None:
+            print(f"{name}: Secret 미설정 — 생략")
+    write_output(has_new=False, title="", body="")
+    return 1 if False in results.values() else 0
 
 
 def write_output(has_new: bool, title: str, body: str, is_error: bool = False,

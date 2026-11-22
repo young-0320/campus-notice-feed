@@ -5,6 +5,11 @@ on:
     # 3일마다 00:00 UTC = 09:00 KST
     - cron: "0 0 */3 * *"
   workflow_dispatch:   # 수동 실행 버튼
+    inputs:
+      test_notify:
+        description: "알림 테스트만 보내기 (공지 확인·이슈 생성 없음)"
+        type: boolean
+        default: false
 
 # 스케줄 실행과 수동 실행이 겹쳐 seen.json push가 충돌하는 것을 방지
 concurrency:
@@ -50,6 +55,8 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          # 수동 실행의 '알림 테스트' 체크박스(불리언). 스케줄 실행에선 빈 값.
+          TEST_NOTIFY: ${{ inputs.test_notify }}
         run: python check_notices.py
 
       - name: 신규 공지 이슈 생성

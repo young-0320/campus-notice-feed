@@ -80,6 +80,43 @@ def test_sends_bcc(monkeypatch):
     assert msg.get_body(("html",)) is not None
 
 
+def test_test_notification_sends_without_crawling(tmp_path, monkeypatch):
+    """TEST_NOTIFY=true 면 게시판을 읽지 않고 테스트 메일만 보낸다.
+    seen.json·이슈 파일은 만들지 않는다."""
+    set_env(monkeypatch)
+    monkeypatch.setenv("TEST_NOTIFY", "true")
+    monkeypatch.delenv("DISCORD_WEBHOOK", raising=False)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.setattr(cn, "SEEN_PATH", tmp_path / "seen.json")
+    monkeypatch.setattr(cn, "TITLE_PATH", tmp_path / "issue_title.txt")
+
+    def boom(*a, **kw):
+        raise AssertionError("게시판을 읽으면 안 됨")
+    monkeypatch.setattr(cn, "fetch_board", boom)
+    FakeSMTP.sent = []
+    monkeypatch.setattr(cn.smtplib, "SMTP_SSL", FakeSMTP)
+
+    assert cn.main() == 0
+    (msg, _, to_addrs), = FakeSMTP.sent
+    assert msg["Subject"] == "공지 알림 테스트"
+    assert to_addrs == ["a@example.com", "b@example.com"]
+    assert not list(tmp_path.iterdir())
+
+
+def test_test_notification_fails_loudly(monkeypatch):
+    """테스트 발송은 실패를 삼키지 않고 종료 코드 1로 알린다."""
+    set_env(monkeypatch)
+    monkeypatch.setenv("TEST_NOTIFY", "true")
+    monkeypatch.delenv("DISCORD_WEBHOOK", raising=False)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    class Refuse(FakeSMTP):
+        def login(self, user, password):
+            raise smtplib.SMTPAuthenticationError(535, b"bad credentials")
+    monkeypatch.setattr(cn.smtplib, "SMTP_SSL", Refuse)
+    assert cn.main() == 1
+
+
 def test_failure_is_swallowed_without_leaking(monkeypatch, capsys):
     """인증 실패 등은 삼키고, 출력에는 예외 타입만 남긴다."""
     set_env(monkeypatch)
