@@ -18,6 +18,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 정상 실행은 2분 안쪽. 사이트 장애로 재시도가 쌓여도 여기서 끊는다
+    # (기본 한도는 6시간).
+    timeout-minutes: 30
     # action은 mutable tag 대신 커밋 SHA로 고정한다(태그 오염 대비).
     # 버전 업데이트는 dependabot이 PR로 제안한다.
     steps:

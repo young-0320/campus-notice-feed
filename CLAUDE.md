@@ -115,14 +115,22 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 8. **필터는 사이트별 `filter`**(`all` 기본 / `keywords`). 키워드 목록은
    `keywords.txt` 하나를 ⭐ 과 필터가 같이 쓴다. 영문 키워드는 단어 경계,
    한글은 부분일치.
-9. **이메일은 Gmail SMTP + Secret 3개**(`SMTP_USER`/`SMTP_PASSWORD`/`MAIL_TO`).
-   수신자 주소는 레포에 두지 않는다. 숨은참조 발송, 실패 처리는 Discord와 동일.
-10. **교차 게시 병합은 실행 내·제목 완전일치**(캠퍼스 태그만 뗀다).
+9. **메일은 GitHub 이슈 알림이 기본**(받는 사람이 레포를 Watch). Gmail SMTP
+   발송(`notify_email`, Secret `SMTP_USER`/`SMTP_PASSWORD`/`MAIL_TO`)은 선택
+   기능으로만 남겨 둔다. 수신자 주소는 레포에 두지 않는다.
+10. **교차 게시 병합은 실행 내·제목 완전일치**(캠퍼스 태그만 뗀다). 합쳐진
+    글은 버리지 않고 `같은 제목: [사이트](URL)` 링크로 남긴다 — 건수만 남기는
+    방식으로 되돌리지 말 것(제목만 같은 다른 글을 놓치게 된다).
+11. **이슈 제목은 접두사 없이** `새 공지 N건 (⭐k) — 단과대 n · …`. 메일
+    제목으로 쓰이므로 `[KHU]` 같은 대괄호 접두사를 다시 붙이지 말 것. 출처는
+    `[단과대 · 학과 · 게시판]`(`sites.toml` 의 `college`).
+12. **접속 불가 사이트는 그 실행에서 건너뛴다**(ConnectionError/Timeout 만.
+    HTTP 오류는 게시판 단위). 이슈 본문은 `ISSUE_BODY_MAX` 에서 자른다.
 
 ## 다음 후보 (우선순위 순, 상세는 log.md "미해결")
 
 1. 국제캠 나머지 사이트 등록 — 검사 결과는 log.md 9번 표. 게시판 선별과
-   `filter` 값은 사용자에게 확인.
+   `filter` 값은 사용자에게 확인. 그다음 서울캠(미조사).
 2. 한글 키워드 부분일치 오탐, 교차 게시 병합의 유사 제목 처리.
 3. 알림 채널 추가(Telegram 등) — 자격 증명은 반드시 Actions Secrets로.
 4. 다른 CMS 사이트(서울캠 일부 추정) — 절차는 log.md "다른 CMS 추가".

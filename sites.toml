@@ -2,6 +2,8 @@
 #
 # [[site]] 하나 = 홈페이지 하나.
 #   name      이슈·메일에 표시되는 이름. 자유롭게 바꿔도 된다(알림 이력과 무관).
+#   college   소속 단과대. 공지마다 [단과대 · 학과 · 게시판]으로 표시되고
+#             제목에 단과대별 건수가 나온다. 생략하면 name 과 같게 본다.
 #   base      "https://<호스트>/<사이트코드>" — 게시판 주소
 #             https://ee.khu.ac.kr/ee25/user/bbs/BMSR00040/list.do?menuNo=21700019
 #             에서 "/user/" 앞부분.
@@ -18,6 +20,7 @@
 # ── 전자정보대학 ─────────────────────────────────────────────────────────
 [[site]]
 name = "전자공학"
+college = "전자정보대학"
 base = "https://ee.khu.ac.kr/ee25"
 filter = "all"
 boards = [
@@ -31,6 +34,7 @@ boards = [
 # ── 공과대학 ────────────────────────────────────────────────────────────
 [[site]]
 name = "공과대학"
+college = "공과대학"
 base = "https://eng.khu.ac.kr/eng_kor"
 filter = "all"
 boards = [
@@ -40,6 +44,7 @@ boards = [
 
 [[site]]
 name = "기계공학"
+college = "공과대학"
 base = "https://me.khu.ac.kr/me_kor"
 filter = "all"
 boards = [
@@ -51,6 +56,7 @@ boards = [
 
 [[site]]
 name = "산업경영공학"
+college = "공과대학"
 base = "https://ie.khu.ac.kr/ie"
 filter = "all"
 boards = [
@@ -60,6 +66,7 @@ boards = [
 
 [[site]]
 name = "원자력공학"
+college = "공과대학"
 base = "https://ne.khu.ac.kr/ne"
 filter = "all"
 boards = [
@@ -70,6 +77,7 @@ boards = [
 
 [[site]]
 name = "화학공학"
+college = "공과대학"
 base = "https://chemeng.khu.ac.kr/chemeng"
 filter = "all"
 boards = [
@@ -79,6 +87,7 @@ boards = [
 
 [[site]]
 name = "신소재공학"
+college = "공과대학"
 base = "https://mse.khu.ac.kr/amie"
 filter = "all"
 boards = [
@@ -90,6 +99,7 @@ boards = [
 
 [[site]]
 name = "사회기반시스템공학"
+college = "공과대학"
 base = "https://civileng.khu.ac.kr/civileng"
 filter = "all"
 boards = [
@@ -100,6 +110,7 @@ boards = [
 
 [[site]]
 name = "건축공학"
+college = "공과대학"
 base = "https://archieng.khu.ac.kr/archieng"
 filter = "all"
 boards = [
@@ -110,6 +121,7 @@ boards = [
 
 [[site]]
 name = "환경공학"
+college = "공과대학"
 base = "https://env.khu.ac.kr/env"
 filter = "all"
 boards = [
@@ -119,6 +131,7 @@ boards = [
 
 [[site]]
 name = "건축학"
+college = "공과대학"
 base = "https://archi.khu.ac.kr/archi"
 filter = "all"
 boards = [
@@ -131,6 +144,7 @@ boards = [
 # ── 생명과학대학 ─────────────────────────────────────────────────────────
 [[site]]
 name = "생명과학대학"
+college = "생명과학대학"
 base = "https://cls.khu.ac.kr/cls"
 filter = "all"
 boards = [
@@ -141,6 +155,7 @@ boards = [
 
 [[site]]
 name = "유전생명공학"
+college = "생명과학대학"
 base = "https://genetech.khu.ac.kr/genetech"
 filter = "all"
 boards = [
@@ -149,6 +164,7 @@ boards = [
 
 [[site]]
 name = "식품생명공학"
+college = "생명과학대학"
 base = "https://fst.khu.ac.kr/fst"
 filter = "all"
 boards = [
@@ -158,6 +174,7 @@ boards = [
 
 [[site]]
 name = "한방생명공학"
+college = "생명과학대학"
 base = "https://ommp.khu.ac.kr/ommp"
 filter = "all"
 boards = [
@@ -166,6 +183,7 @@ boards = [
 
 [[site]]
 name = "식물환경신소재공학"
+college = "생명과학대학"
 base = "https://ecosystem.khu.ac.kr/ecosystem"
 filter = "all"
 boards = [
@@ -174,6 +192,7 @@ boards = [
 
 [[site]]
 name = "원예생명공학"
+college = "생명과학대학"
 base = "https://hort.khu.ac.kr/hort"
 filter = "all"
 boards = [
@@ -182,6 +201,7 @@ boards = [
 
 [[site]]
 name = "스마트팜과학"
+college = "생명과학대학"
 base = "https://smartfarmsci.khu.ac.kr/smartfarm"
 filter = "all"
 boards = [
@@ -191,6 +211,7 @@ boards = [
 
 [[site]]
 name = "융합바이오신소재공학"
+college = "생명과학대학"
 base = "https://cbam.khu.ac.kr/bio"
 filter = "all"
 boards = [

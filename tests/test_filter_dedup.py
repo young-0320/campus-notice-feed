@@ -4,9 +4,9 @@ import json
 import check_notices as cn
 
 SITES = [
-    {"name": "전자", "base": "https://a.example/ee", "filter": "all",
+    {"name": "전자", "college": "전정대", "base": "https://a.example/ee", "filter": "all",
      "page_size": 30, "boards": [["공지", "BMSR00040", "1"]]},
-    {"name": "기계", "base": "https://b.example/me", "filter": "keywords",
+    {"name": "기계", "college": "공대", "base": "https://b.example/me", "filter": "keywords",
      "page_size": 30, "boards": [["광장", "BMSR00040", "2"]]},
 ]
 
@@ -28,7 +28,7 @@ def test_korean_keyword_is_substring():
 
 def run_main(tmp_path, monkeypatch, boards):
     """boards: {menuNo: rows} 를 돌려주는 가짜 사이트로 main() 실행,
-    (이슈 본문, seen) 반환. 두 게시판 모두 baseline("1")이 있는 상태에서 시작."""
+    (이슈 제목+본문, seen) 반환. 두 게시판 모두 baseline("1")이 있는 상태에서 시작."""
     monkeypatch.setattr(cn, "SEEN_PATH", tmp_path / "seen.json")
     monkeypatch.setattr(cn, "TITLE_PATH", tmp_path / "issue_title.txt")
     monkeypatch.setattr(cn, "BODY_PATH", tmp_path / "issue_body.md")
@@ -41,9 +41,10 @@ def run_main(tmp_path, monkeypatch, boards):
     (tmp_path / "seen.json").write_text(
         json.dumps({"BMSR00040:1": ["1"], "BMSR00040:2": ["1"]}), encoding="utf-8")
     cn.main()
-    body = (tmp_path / "issue_body.md")
-    return (body.read_text(encoding="utf-8") if body.exists() else "",
-            json.loads((tmp_path / "seen.json").read_text(encoding="utf-8")))
+    out = "".join(f.read_text(encoding="utf-8")
+                  for f in (tmp_path / "issue_title.txt", tmp_path / "issue_body.md")
+                  if f.exists())
+    return out, json.loads((tmp_path / "seen.json").read_text(encoding="utf-8"))
 
 
 def row(pid, title, tag=""):
@@ -63,13 +64,34 @@ def test_filter_keywords_only_on_that_site(tmp_path, monkeypatch):
     assert "21" in seen["BMSR00040:2"]
 
 
+def test_title_and_source_show_college(tmp_path, monkeypatch):
+    """제목에 단과대별 건수, 각 줄에 [단과대 · 학과 · 게시판]."""
+    out, _ = run_main(tmp_path, monkeypatch, {
+        "1": [row("10", "수강신청 안내"), row("11", "설계 공모전 안내")],
+        "2": [row("20", "캡스톤 공모전 안내")],
+    })
+    assert out.splitlines()[0] == "새 공지 3건 (⭐2) — 전정대 2 · 공대 1"
+    assert "[전정대 · 전자 · 공지]" in out and "**[공대 · 기계 · 광장]**" in out
+
+
 def test_cross_posts_merged_across_sites(tmp_path, monkeypatch):
     """같은 공지가 두 사이트에 캠퍼스 태그만 달리(공통 ↔ All) 올라오면
-    위쪽 사이트의 것 하나만 남기고 '외 N곳'으로 표시한다."""
+    위쪽 사이트의 것 한 줄로 합치되, 다른 사이트의 글도 링크로 남긴다
+    (제목만 같은 다른 글이어도 놓치지 않게)."""
     body, _ = run_main(tmp_path, monkeypatch, {
         "1": [row("10", "AI 공모전 안내", tag="공통")],
         "2": [row("20", "AI 공모전 안내", tag="All")],
     })
     assert body.count("AI 공모전 안내") == 1
-    assert "[전자 공지]" in body and "기계 광장" not in body
-    assert "외 1곳" in body
+    assert "전자 · 공지]" in body and "기계 · 광장" not in body
+    assert "같은 제목: [기계](https://b.example/me/user/bbs/BMSR00040/view.do?menuNo=2&boardId=20)" in body
+    assert "새 공지 1건" in body
+
+
+def test_same_post_listed_twice_is_one(tmp_path, monkeypatch):
+    """한 게시판에 같은 글이 상단 고정+일반 행으로 두 번 나오면 한 건이다."""
+    body, _ = run_main(tmp_path, monkeypatch, {
+        "1": [row("10", "수강신청 안내"), row("10", "수강신청 안내")],
+        "2": [],
+    })
+    assert body.count("수강신청 안내") == 1 and "같은 제목" not in body

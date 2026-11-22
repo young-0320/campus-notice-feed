@@ -41,8 +41,8 @@ LEGACY_KEYS = {
 
 
 def load_sites(path=SITES_PATH):
-    """sites.toml 을 읽어 사이트 목록을 만든다. 기본값(filter=all,
-    page_size=PAGE_SIZE)을 채우고, 잘못된 설정은 즉시 예외로 알린다 —
+    """sites.toml 을 읽어 사이트 목록을 만든다. 기본값(college=name,
+    filter=all, page_size=PAGE_SIZE)을 채우고, 잘못된 설정은 즉시 예외로 알린다 —
     조용히 넘어가면 '설정했는데 알림이 안 오는' 상태가 되기 때문.
 
     seen.json 키(boardId:menuNo)는 사이트를 포함하지 않는다. menuNo 가
@@ -51,6 +51,7 @@ def load_sites(path=SITES_PATH):
     sites = tomllib.loads(Path(path).read_text(encoding="utf-8"))["site"]
     keys = set()
     for s in sites:
+        s.setdefault("college", s["name"])
         s.setdefault("filter", "all")
         s.setdefault("page_size", PAGE_SIZE)
         if s["filter"] not in ("all", "keywords"):
@@ -276,29 +277,64 @@ def is_hot(title: str) -> bool:
 
 def merge_cross_posts(items):
     """같은 공지가 여러 학과 게시판에 올라온 것(교차 게시)을 하나로 합친다.
-    먼저 나온 것(sites.toml 순서)을 남기고 나머지는 그 항목의 dups 로만 센다.
+    먼저 나온 것(sites.toml 순서)을 남기고, 나머지는 버리지 않고 그 항목의
+    also 에 (사이트명, URL)로 붙인다 — 제목만 같고 내용이 다른 글이 잘못
+    합쳐져도 링크가 남아 있어 놓치지 않는다.
     비교 키는 캠퍼스 태그를 뗀 제목 — 같은 글이 사이트에 따라 '공통 …'과
     'All …'로 달리 표기된다. 한 실행 안에서만 합친다(며칠 간격으로 올라온
-    교차 게시는 못 잡는다)."""
+    교차 게시는 못 잡는다).
+    같은 글이 한 게시판에 상단 고정과 일반 행으로 두 번 나온 것(URL 동일)은
+    그냥 하나로 친다."""
     first = {}
     merged = []
     for r in items:
         key = r["title"].removeprefix(r.get("tag", "")).strip().casefold()
-        if key and key in first:
-            first[key]["dups"] += 1
-            continue
-        r["dups"] = 0
-        first[key] = r
-        merged.append(r)
+        kept = first.get(key) if key else None
+        if kept is None:
+            r["also"] = []
+            first[key] = r
+            merged.append(r)
+        elif r["url"] != kept["url"] and r["url"] not in [u for _, u in kept["also"]]:
+            kept["also"].append((r["site"], r["url"]))
     return merged
 
 
 def item_line(r, bold: bool = False) -> str:
-    """이슈 본문의 공지 한 줄."""
-    board = f"**[{r['board']}]**" if bold else f"[{r['board']}]"
-    extra = f" · 외 {r['dups']}곳" if r["dups"] else ""
-    return (f"- {board} [{md_escape(r['title'])}]({r['url']}) "
-            f"`{md_escape(r['date'])}`{extra}")
+    """이슈 본문의 공지 한 줄. 출처는 [단과대 · 학과 · 게시판] 순으로 적는다
+    (단과대 사이트 자체의 글이면 학과 생략)."""
+    source = " · ".join(dict.fromkeys([r["college"], r["site"], r["board"]]))
+    source = f"**[{source}]**" if bold else f"[{source}]"
+    also = ""
+    if r["also"]:
+        links = ", ".join(f"[{site}]({url})" for site, url in r["also"])
+        also = f" · 같은 제목: {links}"
+    return (f"- {source} [{md_escape(r['title'])}]({r['url']}) "
+            f"`{md_escape(r['date'])}`{also}")
+
+
+def issue_title(new_items, hot_count: int) -> str:
+    """신규 공지 이슈 제목. 메일 제목으로도 쓰이므로 어느 단과대 글이 몇 건인지
+    한눈에 보이게 한다. 단과대가 많으면 앞의 넷만 적고 나머지는 묶는다."""
+    counts = {}
+    for r in new_items:
+        counts[r["college"]] = counts.get(r["college"], 0) + 1
+    parts = [f"{c} {n}" for c, n in list(counts.items())[:4]]
+    if len(counts) > 4:
+        parts.append(f"외 {len(counts) - 4}개 대학")
+    star = f" (⭐{hot_count})" if hot_count else ""
+    return f"새 공지 {len(new_items)}건{star} — {' · '.join(parts)}"
+
+
+def truncate_lines(text: str, limit: int, note: str) -> str:
+    """text 가 limit 자를 넘으면 줄 경계에서 자르고 note 를 붙인다.
+    문자 단위로 자르면 마크다운 링크가 반쪽 나고, 표시 없이 자르면 잘린
+    공지의 존재 자체가 사라진다."""
+    if len(text) <= limit:
+        return text
+    cut = text.rfind("\n", 0, limit - len(note))
+    if cut <= 0:  # 줄바꿈이 없는 비정상 본문이면 문자 단위로라도 자른다
+        cut = limit - len(note)
+    return text[:cut] + note
 
 
 def md_escape(text) -> str:
@@ -339,17 +375,32 @@ def main():
     errors = []
     summary = []  # 게시판별 추출 현황(관측성) — GITHUB_STEP_SUMMARY로 출력
 
-    # (사이트, 게시판) 쌍으로 펼쳐 순회한다. name 은 이슈·요약에 쓰는 표시명.
-    targets = [(site, f"{site['name']} {bname}", board, menu)
+    # (사이트, 게시판) 쌍으로 펼쳐 순회한다.
+    targets = [(site, bname, board, menu)
                for site in load_sites() for bname, board, menu in site["boards"]]
+    down = set()  # 이번 실행에서 접속 자체가 안 된 사이트
 
-    for site, name, board, menu in targets:
+    for site, bname, board, menu in targets:
+        name = f"{site['name']} {bname}"  # 요약·오류에 쓰는 표시명
         key = board_key(board, menu)
         page_size = site["page_size"]
+        if site["name"] in down:
+            summary.append({"name": name, "extracted": "—", "total": "—",
+                            "new": 0, "filtered": 0, "status": "⏭ 건너뜀(사이트 접속 불가)"})
+            continue
         try:
             rows, total = fetch_board(site["base"], board, menu, page_size)
         except Exception as e:  # noqa: BLE001
-            errors.append(f"- `{name}` 수집 실패: {md_escape(e)}")
+            # 접속 실패·타임아웃이면 사이트가 내려간 것 — 남은 게시판마다 재시도
+            # (게시판당 최대 약 1분)를 반복하지 않고 이번 실행에선 건너뛴다.
+            # seen 을 건드리지 않으므로 다음 실행에서 그대로 이어서 잡힌다.
+            # HTTP 오류(404 등)는 그 게시판만의 문제일 수 있어 건너뛰지 않는다.
+            site_down = isinstance(e, (requests.ConnectionError, requests.Timeout))
+            if site_down:
+                down.add(site["name"])
+            errors.append(f"- `{name}` 수집 실패: {md_escape(e)}"
+                          + (" — 이 사이트의 남은 게시판은 이번 실행에서 건너뜀"
+                             if site_down else ""))
             summary.append({"name": name, "extracted": "—", "total": "—",
                             "new": 0, "filtered": 0, "status": "❌ 수집 실패"})
             continue
@@ -398,7 +449,9 @@ def main():
                 if site["filter"] == "keywords" and not is_hot(r["title"]):
                     filtered += 1
                     continue
-                r["board"] = name
+                r["college"] = site["college"]
+                r["site"] = site["name"]
+                r["board"] = bname
                 r["url"] = VIEW_URL.format(base=site["base"], board=board,
                                            menu=menu, pid=r["id"])
                 new_items.append(r)
@@ -424,8 +477,8 @@ def main():
     # 오류가 해소되면(정상/신규 실행) 마커를 지워 다음 오류는 다시 알린다.
     error_title = None
     if errors and (first_run or not new_items):
-        error_title = ("[KHU] 첫 실행 — 파서 점검 필요" if first_run
-                       else "[KHU] 공지 수집 실패")
+        error_title = ("첫 실행 — 파서 점검 필요" if first_run
+                       else "공지 수집 실패")
     error_repeat = error_title is not None and seen.get(LAST_ERROR_KEY) == error_title
     if error_title:
         seen[LAST_ERROR_KEY] = error_title
@@ -479,7 +532,7 @@ def main():
         lines.extend(errors)
 
     body = "\n".join(lines)
-    title = f"[KHU] 신규 공지 {len(new_items)}건" + (f" (⭐{len(hot)})" if hot else "")
+    title = issue_title(new_items, len(hot))
 
     print(title)
     print(body)
@@ -502,16 +555,8 @@ def notify_discord(title: str, body: str):
     url = os.environ.get("DISCORD_WEBHOOK", "").strip()
     if not url:
         return
-    # embed description 제한(4096자) 초과분은 줄 경계에서 자르고 생략을
-    # 표시한다 — 문자 단위로 자르면 마크다운 링크가 반쪽 나고, 표시 없이
-    # 자르면 잘린 공지의 존재 자체가 Discord에서 사라진다.
-    desc = body
-    if len(desc) > 4096:
-        note = "\n\n…(길이 제한 초과로 일부 생략 — 전체 목록은 GitHub 이슈 참고)"
-        cut = desc.rfind("\n", 0, 4096 - len(note))
-        if cut <= 0:  # 줄바꿈이 없는 비정상 본문이면 문자 단위로라도 자른다
-            cut = 4096 - len(note)
-        desc = desc[:cut] + note
+    desc = truncate_lines(  # embed description 제한(4096자)
+        body, 4096, "\n\n…(길이 제한 초과로 일부 생략 — 전체 목록은 GitHub 이슈 참고)")
     payload = {"embeds": [{
         "title": title[:256],  # embed title 제한(봇 생성 제목이라 실제론 짧음)
         "description": desc,
@@ -525,6 +570,9 @@ def notify_discord(title: str, body: str):
         print(f"Discord 알림 실패({type(e).__name__} {status}) — "
               f"이슈 생성은 계속 진행", file=sys.stderr)
 
+
+# GitHub 이슈 본문 한도는 65536자. 여유를 두고 자른다.
+ISSUE_BODY_MAX = 60000
 
 # 이메일 발송 서버. Gmail 앱 비밀번호 기준(README "이메일 알림 받기").
 # 다른 메일 서비스를 쓰려면 이 두 값을 그 서비스의 SMTP(SSL) 주소로 바꾼다.
@@ -607,6 +655,11 @@ def write_output(has_new: bool, title: str, body: str, is_error: bool = False,
     동일 제목의 open 이슈가 있으면 새 이슈 대신 댓글을 단다(중복 방지).
     notify: False면 Discord·이메일 전송만 생략(반복 오류 dedup용 — 이슈는 그대로)."""
     if has_new:
+        # GitHub 이슈 본문 한도(65536자)를 넘으면 이슈 생성이 실패하고, 그러면
+        # seen.json 도 커밋되지 않아 다음 실행에서 같은 본문으로 계속 실패한다.
+        body = truncate_lines(
+            body, ISSUE_BODY_MAX,
+            "\n\n…(길이 제한 초과로 일부 생략 — 나머지는 각 게시판에서 확인)")
         TITLE_PATH.write_text(title + "\n", encoding="utf-8")
         BODY_PATH.write_text(body + "\n", encoding="utf-8")
         if notify:

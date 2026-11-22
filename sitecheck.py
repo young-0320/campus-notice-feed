@@ -155,6 +155,7 @@ def inspect(url):
           "지우고 붙여 넣는다")
     for base in dict.fromkeys(b for _, _, _, b, _, _ in results):
         print(f'\n[[site]]\nname = "{urlsplit(base).hostname}"   # ← 표시할 이름으로 바꾼다'
+              f'\ncollege = "단과대 이름"   # ← 소속 단과대'
               f'\nbase = "{base}"\nfilter = "all"\nboards = [')
         for grade, detail, name, b, board, menu in results:
             if b != base:

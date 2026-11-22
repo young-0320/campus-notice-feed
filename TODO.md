@@ -43,11 +43,12 @@
 ### 3. 알림 채널 다변화 (Discord / Telegram) — Discord ✅ 완료 (2026-07-11)
 
 Discord는 `feat/stable-keys-discord` 브랜치에서 구현(보안 전제는 log.md
-7번에 명문화, 웹훅 준비 절차는 README로 이동). 이메일(Gmail SMTP)은
-2026-11-22 완료(log.md 12번). Telegram 등은 남음.
+7번에 명문화, 웹훅 준비 절차는 README로 이동). 메일은 GitHub 이슈 알림을
+기본으로 쓰기로 했고(log.md 15번), Gmail 직접 발송은 선택 기능으로 구현만
+돼 있다(12번). Telegram 등은 남음.
 
-- [ ] **이메일 준비(사용자 몫)**: `SMTP_USER`·`SMTP_PASSWORD`·`MAIL_TO`
-  Secret 등록 — 절차는 README "이메일 알림 받기".
+- [ ] **메일 받을 사람(사용자 몫)**: 레포 **Watch → Custom → Issues**.
+  Gmail 직접 발송이 필요해지면 README "Gmail 로 직접 보내기".
 
 - [ ] **웹훅 준비(사용자 몫)**: `DISCORD_WEBHOOK` Secret 등록 — 절차는
   README "Discord 알림 받기" 참고. URL은 **Secret에만**.
