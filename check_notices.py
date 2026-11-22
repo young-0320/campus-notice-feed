@@ -14,6 +14,7 @@ import smtplib
 import sys
 import time
 import tomllib
+from datetime import date, timedelta
 from email.message import EmailMessage
 from html import escape as html_escape
 from pathlib import Path
@@ -367,11 +368,19 @@ def write_summary(summary):
         f.write("\n".join(lines) + "\n")
 
 
+# 알림 테스트(TEST_NOTIFY=true)가 '신규'로 간주하는 기간
+TEST_WINDOW_DAYS = 7
+
+
 def main():
-    if os.environ.get("TEST_NOTIFY") == "true":
-        return send_test_notification()
+    # 알림 테스트: 워크플로 수동 실행에서 '알림 테스트' 를 체크하면 켜진다.
+    # 게시판을 실제로 읽되 최근 TEST_WINDOW_DAYS 일 글을 신규로 간주해, 진짜
+    # 알림과 같은 모양의 이슈(→ GitHub 알림 메일)·Discord·Gmail 을 보낸다.
+    # seen.json 은 저장하지 않으므로 이후 실제 알림에는 영향이 없다.
+    test = os.environ.get("TEST_NOTIFY") == "true"
+    test_since = (date.today() - timedelta(days=TEST_WINDOW_DAYS)).isoformat()
     seen = migrate_seen(load_seen())
-    first_run = not seen
+    first_run = not seen and not test
     totals = seen.get(TOTALS_KEY, {})  # 게시판별 지난 성공 실행의 "전체 N 건"
     new_items = []
     errors = []
@@ -436,6 +445,9 @@ def main():
         known = set(seen.get(key, []))
         fresh = [r for r in rows if r["id"] not in known]
         board_seen = key in seen  # baseline 갱신 전에 캡처(아래에서 seen[key]를 씀)
+        if test:
+            fresh = [r for r in rows if r["date"].replace(".", "-") >= test_since]
+            board_seen = True
 
         # 이 게시판을 이전 실행에서 본 적이 있을 때만 신규 알림.
         # board_seen=False = 첫 실행이거나 새로 추가된 게시판 → baseline만
@@ -489,7 +501,8 @@ def main():
 
     if totals:  # 성공적으로 읽은 total이 하나라도 있을 때만 기록
         seen[TOTALS_KEY] = totals
-    save_seen(seen)
+    if not test:
+        save_seen(seen)
     write_summary(summary)
 
     if first_run:
@@ -538,6 +551,16 @@ def main():
 
     print(title)
     print(body)
+    if test:
+        # 채널별 결과를 이슈 본문에 적는다 — 실제 알림은 전송 실패를 삼키므로
+        # (주 채널 보호) 테스트에서는 결과가 눈에 보이는 곳에 남아야 한다.
+        title = f"(테스트) {title}"
+        state = {None: "미설정", True: "전송됨", False: "전송 실패 — Actions 로그 확인"}
+        sent = {"Discord": notify_discord(title, body), "Gmail": notify_email(title, body)}
+        body += (f"\n\n---\n알림 테스트입니다(최근 {TEST_WINDOW_DAYS}일 글을 신규로 간주). "
+                 + " · ".join(f"{k}: {state[v]}" for k, v in sent.items()))
+        write_output(has_new=True, title=title, body=body, notify=False)
+        return
     write_output(has_new=True, title=title, body=body)
 
 
@@ -652,27 +675,6 @@ def notify_email(title: str, body: str):
         print(f"이메일 알림 실패({type(e).__name__}) — 이슈 생성은 계속 진행",
               file=sys.stderr)
         return False
-
-
-def send_test_notification():
-    """알림 채널 설정 확인용 테스트 발송. 워크플로를 수동 실행할 때
-    '알림 테스트' 를 체크하면(TEST_NOTIFY=true) 공지 확인 대신 이것만 돈다.
-    게시판을 읽지 않고 seen.json·이슈도 건드리지 않는다.
-    설정된 채널 중 하나라도 전송에 실패하면 종료 코드 1 — 실제 알림과 달리
-    여기서는 실패가 눈에 띄어야 한다(Actions 실행이 빨갛게 표시된다)."""
-    sample = {"college": "전자정보대학", "site": "전자공학", "board": "학사/장학",
-              "title": "(예시) 공지 제목이 여기에 나옵니다",
-              "url": "https://ee.khu.ac.kr", "date": "2026-01-01", "also": []}
-    title = "공지 알림 테스트"
-    body = ("알림 설정 확인용 테스트입니다. 실제 공지는 아래 형식으로 옵니다.\n\n"
-            + item_line(sample))
-    results = {"Discord": notify_discord(title, body),
-               "이메일": notify_email(title, body)}
-    for name, ok in results.items():
-        if ok is None:
-            print(f"{name}: Secret 미설정 — 생략")
-    write_output(has_new=False, title="", body="")
-    return 1 if False in results.values() else 0
 
 
 def write_output(has_new: bool, title: str, body: str, is_error: bool = False,

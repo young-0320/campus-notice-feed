@@ -126,8 +126,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
     `[단과대 · 학과 · 게시판]`(`sites.toml` 의 `college`).
 12. **접속 불가 사이트는 그 실행에서 건너뛴다**(ConnectionError/Timeout 만.
     HTTP 오류는 게시판 단위). 이슈 본문은 `ISSUE_BODY_MAX` 에서 자른다.
-13. **알림 테스트는 워크플로 수동 실행의 `test_notify`**(`TEST_NOTIFY=true`
-    → `send_test_notification`). 받는 사람 주소·비밀번호는 Secret 에만 —
+13. **알림 테스트는 워크플로 수동 실행의 `test_notify`**(`TEST_NOTIFY=true`).
+    최근 7일 글을 신규로 간주해 `(테스트)` 이슈·Discord·Gmail 을 보내고
+    seen.json 은 저장하지 않는다. 받는 사람 주소·비밀번호는 Secret 에만 —
     레포 파일·커밋·이슈에 적지 말 것.
 
 ## 다음 후보 (우선순위 순, 상세는 log.md "미해결")

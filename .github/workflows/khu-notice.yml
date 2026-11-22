@@ -7,7 +7,7 @@ on:
   workflow_dispatch:   # 수동 실행 버튼
     inputs:
       test_notify:
-        description: "알림 테스트만 보내기 (공지 확인·이슈 생성 없음)"
+        description: "알림 테스트 (최근 7일 글로 테스트 이슈·알림 발송, 상태 저장 안 함)"
         type: boolean
         default: false
 

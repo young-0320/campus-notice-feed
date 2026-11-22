@@ -72,3 +72,23 @@ def test_issue_body_is_capped(tmp_path, monkeypatch):
     assert len(written) <= cn.ISSUE_BODY_MAX + 1
     assert "일부 생략" in written
     assert written.splitlines()[-3].endswith("가" * 80)   # 줄 중간에서 끊기지 않음
+
+
+def test_notify_test_mode_previews_without_saving(tmp_path, monkeypatch):
+    """TEST_NOTIFY=true: 이미 본 글이라도 최근 글이면 신규로 간주해 테스트
+    이슈를 만들고, 채널별 결과를 본문에 적으며, seen.json 은 그대로 둔다."""
+    setup(tmp_path, monkeypatch)
+    monkeypatch.setenv("TEST_NOTIFY", "true")
+    before = (tmp_path / "seen.json").read_text(encoding="utf-8")
+    recent = cn.date.today().isoformat()
+    monkeypatch.setattr(cn, "fetch_board", lambda base, board, menu, count=30: (
+        [{"id": "1", "title": f"최근 글 {menu}", "date": recent, "tag": ""},
+         {"id": "0", "title": "오래된 글", "date": "2020.01.01", "tag": ""}], 2))
+    cn.main()
+
+    title = (tmp_path / "issue_title.txt").read_text(encoding="utf-8")
+    body = (tmp_path / "issue_body.md").read_text(encoding="utf-8")
+    assert title.startswith("(테스트) 새 공지 4건")
+    assert "최근 글 1" in body and "오래된 글" not in body
+    assert "Discord: 미설정 · Gmail: 미설정" in body
+    assert (tmp_path / "seen.json").read_text(encoding="utf-8") == before
