@@ -29,17 +29,18 @@ def test_repeated_error_notifies_discord_once(tmp_path, monkeypatch):
 
     # 첫 실행이 아니도록 전 게시판 baseline을 심는다(불변 키 형식)
     (tmp_path / "seen.json").write_text(
-        json.dumps({cn.board_key(b, m): ["1"] for _, b, m in cn.BOARDS}),
+        json.dumps({cn.board_key(b, m): ["1"]
+                    for s in cn.load_sites() for _, b, m in s["boards"]}),
         encoding="utf-8")
 
     posted = []
     monkeypatch.setattr(cn.requests, "post",
                         lambda url, json=None, timeout=None: (posted.append(json), OkResp())[1])
 
-    def fail(board, menu, count=cn.PAGE_SIZE):
+    def fail(base, board, menu, count=cn.PAGE_SIZE):
         raise requests.ConnectionError("down")
 
-    def healthy(board, menu, count=cn.PAGE_SIZE):
+    def healthy(base, board, menu, count=cn.PAGE_SIZE):
         return [], 0  # 빈 게시판(전체 0건) — 오류·신규 없음
 
     # 1·2회차: 같은 수집 실패 → Discord는 1회만

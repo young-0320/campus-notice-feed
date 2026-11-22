@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>mock: 표형 — 캠퍼스 태그·상단 고정·본부 공지 행 포함</title></head>
+<body>
+<!-- 라이브 학과 사이트(eng.khu.ac.kr 등)의 표형 목록 구조를 본뜬 mock.
+     - 본부 공지 행: 다른 호스트(www)로 가는 링크, onclick 이 비어 있음 → 글로 세지 않는다
+     - 제목 a 안의 span.txtBox01: 캠퍼스 구분 태그(공통/All/국제…) -->
+<div class="bbs-total">전체<!-- 전체 --> <strong>2</strong> 건<!-- 건 --></div>
+<table>
+  <thead><tr><th>번호</th><th>분류</th><th>제목</th><th>첨부</th><th>등록일</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="category active">대학</span></td>
+      <td>일반</td>
+      <td class="tal"><a href="https://www.khu.ac.kr/kor/user/bbs/BMSR00040/view.do?menuNo=200316&amp;boardId=323468" onclick="" target="_blank">
+        <span class="txtBox01 common">All</span>
+        본부 공지(다른 사이트의 글)</a></td>
+      <td class="file"></td>
+      <td>2026-11-20</td>
+    </tr>
+    <tr class="NttClass">
+      <td><span class="category active">공지</span></td>
+      <td>일반</td>
+      <td class="tal"><a href="javascript:view('559072');">
+        <span class="txtBox01 common">All</span>
+        AI 홍보영상 공모전 개최 안내 </a></td>
+      <td class="file"></td>
+      <td>2026-11-09</td>
+    </tr>
+    <tr>
+      <td>2375</td>
+      <td>일반</td>
+      <td class="tal"><a href="javascript:view('559001');">
+        학과 세미나 안내</a></td>
+      <td class="file"></td>
+      <td>2026-11-08</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>

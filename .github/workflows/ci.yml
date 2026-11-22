@@ -7,12 +7,14 @@ on:
     paths:
       - "**.py"
       - "tests/**"
+      - "sites.toml"
       - "requirements*.txt"
       - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "**.py"
       - "tests/**"
+      - "sites.toml"
       - "requirements*.txt"
       - ".github/workflows/ci.yml"
 

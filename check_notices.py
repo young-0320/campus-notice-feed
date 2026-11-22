@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-경희대 전자공학과(ee.khu.ac.kr) 공지 게시판 신규 글 감시.
+경희대 학과/단과대 공지 게시판 신규 글 감시.
 
-- 5개 게시판을 순회하며 게시글 고유 ID를 수집
+- sites.toml 에 등록된 사이트의 게시판을 순회하며 게시글 고유 ID를 수집
 - seen.json에 없는 ID = 신규 글
 - 신규 글이 있으면 GitHub Issue 본문용 마크다운을 만들어 stdout + $GITHUB_OUTPUT 으로 내보냄
 """
@@ -10,23 +10,58 @@
 import json
 import os
 import re
+import smtplib
 import sys
 import time
+import tomllib
+from email.message import EmailMessage
+from html import escape as html_escape
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
-BASE = "https://ee.khu.ac.kr"
+# 감시 대상(사이트·게시판·필터)은 코드 밖 sites.toml 에 둔다. 형식은 그 파일의
+# 머리말 주석, 새 사이트를 넣는 절차는 README "사이트 추가" 참고.
+SITES_PATH = Path(__file__).with_name("sites.toml")
 
-# (표시명, boardId, menuNo)
-BOARDS = [
-    ("소식",            "BMSR00044", "21700021"),
-    ("학사/장학",        "BMSR00040", "21700019"),
-    ("취업정보/대외활동", "BMSR00040", "21700020"),
-    ("행사",            "BMSR00044", "21700046"),
-    ("기타공지",         "BMSR00040", "21700022"),
-]
+# list.do 에 요청하는 페이지당 글 수(userDisplayCount)의 기본값.
+# 이 요청을 무시하는 사이트는 sites.toml 의 page_size 로 사이트별 조정한다.
+PAGE_SIZE = 30
+
+# seen.json 이 게시판 표시명을 키로 쓰던 구버전 → 불변 키 대응표.
+# migrate_seen() 전용. 표시명 키 시절엔 이 5개 게시판뿐이었으므로 고정값이다.
+LEGACY_KEYS = {
+    "소식":            "BMSR00044:21700021",
+    "학사/장학":        "BMSR00040:21700019",
+    "취업정보/대외활동": "BMSR00040:21700020",
+    "행사":            "BMSR00044:21700046",
+    "기타공지":         "BMSR00040:21700022",
+}
+
+
+def load_sites(path=SITES_PATH):
+    """sites.toml 을 읽어 사이트 목록을 만든다. 기본값(filter=all,
+    page_size=PAGE_SIZE)을 채우고, 잘못된 설정은 즉시 예외로 알린다 —
+    조용히 넘어가면 '설정했는데 알림이 안 오는' 상태가 되기 때문.
+
+    seen.json 키(boardId:menuNo)는 사이트를 포함하지 않는다. menuNo 가
+    사이트마다 다른 대역을 쓴다는 관측(19개 사이트 134개 게시판 충돌 0건)에
+    기댄 것이라, 여기서 중복을 검사해 그 가정이 깨지면 바로 드러나게 한다."""
+    sites = tomllib.loads(Path(path).read_text(encoding="utf-8"))["site"]
+    keys = set()
+    for s in sites:
+        s.setdefault("filter", "all")
+        s.setdefault("page_size", PAGE_SIZE)
+        if s["filter"] not in ("all", "keywords"):
+            raise ValueError(f"sites.toml: {s['name']} 의 filter 는 "
+                             f"all 또는 keywords 여야 한다: {s['filter']!r}")
+        for _, board, menu in s["boards"]:
+            key = board_key(board, menu)
+            if key in keys:
+                raise ValueError(f"sites.toml: 게시판 키 중복 {key} ({s['name']})")
+            keys.add(key)
+    return sites
 
 # 제목에 이 단어가 있으면 ⭐ 표시.
 # keywords.txt(스크립트와 같은 폴더)가 있으면 그 파일을 우선 사용한다.
@@ -59,8 +94,23 @@ def load_keywords():
 
 KEYWORDS = load_keywords()
 
-LIST_URL = BASE + "/ee25/user/bbs/{board}/list.do"
-VIEW_URL = BASE + "/ee25/user/bbs/{board}/view.do?menuNo={menu}&boardId={pid}"
+
+def keyword_pattern(keyword: str):
+    """키워드 → 제목 매칭용 정규식(대소문자 무시).
+    영문/숫자 키워드는 앞뒤에 영문·숫자가 붙어 있으면 불일치로 본다 —
+    부분일치면 'AI'가 fair·email·training 에 전부 걸린다. 한글 키워드는
+    조사·합성어 때문에 단어 경계가 없으므로 부분일치 그대로('공모'→'공모전')."""
+    pat = re.escape(keyword)
+    if keyword.isascii():
+        pat = rf"(?<![A-Za-z0-9]){pat}(?![A-Za-z0-9])"
+    return re.compile(pat, re.IGNORECASE)
+
+
+KEYWORD_PATTERNS = [keyword_pattern(k) for k in KEYWORDS]
+
+# {base} = sites.toml 의 base (예: https://ee.khu.ac.kr/ee25)
+LIST_URL = "{base}/user/bbs/{board}/list.do"
+VIEW_URL = "{base}/user/bbs/{board}/view.do?menuNo={menu}&boardId={pid}"
 
 SEEN_PATH = Path(__file__).with_name("seen.json")
 
@@ -89,9 +139,6 @@ ID_RE = re.compile(r"view\s*\(\s*['\"](\d{4,})['\"]")
 # 기대 추출 수(전체 N 건과 페이지 크기 중 작은 값)의 이 비율 미만만
 # 실제로 추출되면 마크업 변경으로 간주한다
 PARSE_RATE_MIN = 0.7
-
-# list.do 에 요청하는 페이지당 글 수(userDisplayCount)
-PAGE_SIZE = 30
 
 
 def parse_board(html):
@@ -136,7 +183,11 @@ def parse_board(html):
             date = d.get_text(strip=True) if d else ""
 
         title = re.sub(r"\s+", " ", title).strip()
-        rows.append({"id": pid, "title": title, "date": date})
+        # 제목 앞 캠퍼스 구분 태그(공통/국제/서울/All…). 제목에는 그대로 두되,
+        # 사이트마다 표기가 달라(공통 ↔ All) 교차 게시 병합 때 떼어내려고 따로 둔다.
+        tag_el = el.select_one("span.txtBox01")
+        tag = tag_el.get_text(strip=True) if tag_el else ""
+        rows.append({"id": pid, "title": title, "date": date, "tag": tag})
 
     # 사이트가 알려주는 전체 글 수("전체 N 건") — 건강검사의 기준값.
     # 빈 게시판(0건)과 파서 고장(글 있는데 0건 추출)을 구분하는 데 쓴다.
@@ -150,7 +201,7 @@ def parse_board(html):
     return rows, total
 
 
-def fetch_board(board: str, menu: str, count: int = PAGE_SIZE):
+def fetch_board(base: str, board: str, menu: str, count: int = PAGE_SIZE):
     """게시판 목록을 HTTP로 받아 parse_board에 넘긴다. 반환은 parse_board와 동일."""
     params = {
         "menuNo": menu,
@@ -163,7 +214,7 @@ def fetch_board(board: str, menu: str, count: int = PAGE_SIZE):
     # 일회성 타임아웃/5xx 한 번에 실패 이슈가 나가지 않게 2회까지 재시도
     for attempt in range(3):
         try:
-            r = requests.get(LIST_URL.format(board=board), params=params,
+            r = requests.get(LIST_URL.format(base=base, board=board), params=params,
                              headers=UA, timeout=20)
             r.raise_for_status()
             break
@@ -187,7 +238,7 @@ def board_key(board: str, menu: str) -> str:
 def migrate_seen(seen):
     """구버전 seen.json(게시판 표시명 키)을 불변 키(boardId:menuNo)로 이관.
     표시명 키는 이름만 바꿔도 알림 이력이 초기화되고 옛 키가 찌꺼기로
-    남는 문제가 있었다. 현재 BOARDS의 표시명과 일치하는 옛 키를 새 키로
+    남는 문제가 있었다. LEGACY_KEYS의 표시명과 일치하는 옛 키를 새 키로
     옮기며, 이관 후에는 no-op.
 
     두 형식이 공존하면(예: 이관 커밋 후 revert됐다가 다시 roll-forward)
@@ -195,8 +246,7 @@ def migrate_seen(seen):
     known에서 빠져 중복 알림이 나기 때문. totals는 카운트 하나라 병합할 게
     없어 최신값(새 키)을 유지한다."""
     totals = seen.get(TOTALS_KEY, {})
-    for name, board, menu in BOARDS:
-        key = board_key(board, menu)
+    for name, key in LEGACY_KEYS.items():
         if name in seen:
             old = seen.pop(name)
             cur = seen.get(key)
@@ -221,7 +271,34 @@ def save_seen(seen):
 
 
 def is_hot(title: str) -> bool:
-    return any(k.lower() in title.lower() for k in KEYWORDS)
+    return any(p.search(title) for p in KEYWORD_PATTERNS)
+
+
+def merge_cross_posts(items):
+    """같은 공지가 여러 학과 게시판에 올라온 것(교차 게시)을 하나로 합친다.
+    먼저 나온 것(sites.toml 순서)을 남기고 나머지는 그 항목의 dups 로만 센다.
+    비교 키는 캠퍼스 태그를 뗀 제목 — 같은 글이 사이트에 따라 '공통 …'과
+    'All …'로 달리 표기된다. 한 실행 안에서만 합친다(며칠 간격으로 올라온
+    교차 게시는 못 잡는다)."""
+    first = {}
+    merged = []
+    for r in items:
+        key = r["title"].removeprefix(r.get("tag", "")).strip().casefold()
+        if key and key in first:
+            first[key]["dups"] += 1
+            continue
+        r["dups"] = 0
+        first[key] = r
+        merged.append(r)
+    return merged
+
+
+def item_line(r, bold: bool = False) -> str:
+    """이슈 본문의 공지 한 줄."""
+    board = f"**[{r['board']}]**" if bold else f"[{r['board']}]"
+    extra = f" · 외 {r['dups']}곳" if r["dups"] else ""
+    return (f"- {board} [{md_escape(r['title'])}]({r['url']}) "
+            f"`{md_escape(r['date'])}`{extra}")
 
 
 def md_escape(text) -> str:
@@ -235,20 +312,21 @@ def write_summary(summary):
     """게시판별 추출 현황을 GITHUB_STEP_SUMMARY(Actions 실행 화면)에 숫자 표로
     남긴다. 신규 0건인 평범한 실행에서도 게시판별 '추출/전체' 수를 볼 수 있어,
     건강검사 임계값(PARSE_RATE_MIN)에 다가가는 추출률 드리프트를 경고가 터지기
-    전에 관측할 수 있다. 게시판명(코드 상수)과 숫자만 넣고 게시글 제목 등 신뢰
+    전에 관측할 수 있다. '필터 제외'는 filter=keywords 사이트에서 키워드가 없어
+    알리지 않은 신규 글 수. 게시판명(sites.toml)과 숫자만 넣고 게시글 제목 등 신뢰
     불가 텍스트는 넣지 않으므로 인젝션 표면이 없다."""
     path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not path:
         return
     lines = [
-        "## KHU EE 공지 감시 — 실행 요약",
+        "## KHU 공지 감시 — 실행 요약",
         "",
-        "| 게시판 | 추출 | 전체 | 신규 | 상태 |",
-        "|---|---:|---:|---:|---|",
+        "| 게시판 | 추출 | 전체 | 신규 | 필터 제외 | 상태 |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for s in summary:
         lines.append(f"| {s['name']} | {s['extracted']} | {s['total']} "
-                     f"| {s['new']} | {s['status']} |")
+                     f"| {s['new']} | {s['filtered']} | {s['status']} |")
     with open(path, "a", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -261,14 +339,19 @@ def main():
     errors = []
     summary = []  # 게시판별 추출 현황(관측성) — GITHUB_STEP_SUMMARY로 출력
 
-    for name, board, menu in BOARDS:
+    # (사이트, 게시판) 쌍으로 펼쳐 순회한다. name 은 이슈·요약에 쓰는 표시명.
+    targets = [(site, f"{site['name']} {bname}", board, menu)
+               for site in load_sites() for bname, board, menu in site["boards"]]
+
+    for site, name, board, menu in targets:
         key = board_key(board, menu)
+        page_size = site["page_size"]
         try:
-            rows, total = fetch_board(board, menu)
+            rows, total = fetch_board(site["base"], board, menu, page_size)
         except Exception as e:  # noqa: BLE001
             errors.append(f"- `{name}` 수집 실패: {md_escape(e)}")
             summary.append({"name": name, "extracted": "—", "total": "—",
-                            "new": 0, "status": "❌ 수집 실패"})
+                            "new": 0, "filtered": 0, "status": "❌ 수집 실패"})
             continue
 
         # 파서 건강검사: 사이트의 "전체 N 건"과 실제 추출 수를 비교해
@@ -277,7 +360,7 @@ def main():
         parse_suspect = False  # 건강검사에 걸림 = 이번 추출본을 신뢰할 수 없음
         if total is not None:
             totals[key] = total  # 성공한 전체 건수 기록(다음 실행의 비교 기준)
-            expected = min(total, PAGE_SIZE)
+            expected = min(total, page_size)
             if expected and len(rows) < expected * PARSE_RATE_MIN:
                 parse_suspect = True
                 errors.append(f"- `{name}` 추출 수 급감 "
@@ -306,10 +389,18 @@ def main():
         # 저장하고 알림은 보내지 않는다. (전역 first_run 대신 게시판 단위로
         # 판정 — 게시판 추가/부분 실패로 일부만 known이 비었을 때 옛 글이
         # 전부 신규로 터지는 것을 방지.)
+        #
+        # filter=keywords 사이트는 관심 키워드가 제목에 있는 글만 알린다.
+        # 걸러진 글도 아래에서 seen 에 기록되므로 나중에 다시 나오지 않는다.
+        filtered = 0
         if board_seen:
             for r in fresh:
+                if site["filter"] == "keywords" and not is_hot(r["title"]):
+                    filtered += 1
+                    continue
                 r["board"] = name
-                r["url"] = VIEW_URL.format(board=board, menu=menu, pid=r["id"])
+                r["url"] = VIEW_URL.format(base=site["base"], board=board,
+                                           menu=menu, pid=r["id"])
                 new_items.append(r)
 
         # 최근 200개만 유지. 단, 건강검사에 걸린 게시판의 baseline은 새로
@@ -322,16 +413,19 @@ def main():
 
         summary.append({"name": name, "extracted": len(rows),
                         "total": total if total is not None else "—",
-                        "new": len(fresh) if board_seen else 0,
+                        "new": len(fresh) - filtered if board_seen else 0,
+                        "filtered": filtered,
                         "status": "⚠️ 점검 필요" if parse_suspect else "정상"})
+
+    new_items = merge_cross_posts(new_items)
 
     # 이번 실행이 오류 이슈로 끝나는지 판정하고(제목 고정), 직전 실행과 같은
     # 오류의 반복인지 seen.json 메타 키로 확인한다(LAST_ERROR_KEY 주석 참고).
     # 오류가 해소되면(정상/신규 실행) 마커를 지워 다음 오류는 다시 알린다.
     error_title = None
     if errors and (first_run or not new_items):
-        error_title = ("[KHU EE] 첫 실행 — 파서 점검 필요" if first_run
-                       else "[KHU EE] 공지 수집 실패")
+        error_title = ("[KHU] 첫 실행 — 파서 점검 필요" if first_run
+                       else "[KHU] 공지 수집 실패")
     error_repeat = error_title is not None and seen.get(LAST_ERROR_KEY) == error_title
     if error_title:
         seen[LAST_ERROR_KEY] = error_title
@@ -370,14 +464,14 @@ def main():
     if hot:
         lines.append("## ⭐ 관심 키워드 매칭\n")
         for r in hot:
-            lines.append(f"- **[{r['board']}]** [{md_escape(r['title'])}]({r['url']}) `{md_escape(r['date'])}`")
+            lines.append(item_line(r, bold=True))
         lines.append("")
 
     rest = [r for r in new_items if r not in hot]
     if rest:
         lines.append("## 그 외 신규 공지\n")
         for r in rest:
-            lines.append(f"- [{r['board']}] [{md_escape(r['title'])}]({r['url']}) `{md_escape(r['date'])}`")
+            lines.append(item_line(r))
         lines.append("")
 
     if errors:
@@ -385,7 +479,7 @@ def main():
         lines.extend(errors)
 
     body = "\n".join(lines)
-    title = f"[KHU EE] 신규 공지 {len(new_items)}건" + (f" (⭐{len(hot)})" if hot else "")
+    title = f"[KHU] 신규 공지 {len(new_items)}건" + (f" (⭐{len(hot)})" if hot else "")
 
     print(title)
     print(body)
@@ -432,6 +526,78 @@ def notify_discord(title: str, body: str):
               f"이슈 생성은 계속 진행", file=sys.stderr)
 
 
+# 이메일 발송 서버. Gmail 앱 비밀번호 기준(README "이메일 알림 받기").
+# 다른 메일 서비스를 쓰려면 이 두 값을 그 서비스의 SMTP(SSL) 주소로 바꾼다.
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 465
+
+
+def md_to_html(body: str) -> str:
+    """이슈 본문(이 스크립트가 만든 마크다운)을 메일용 HTML로 바꾼다.
+    범용 마크다운 변환기가 아니라 main()이 실제로 쓰는 구문만 다룬다:
+    '## 제목', '- 목록', [텍스트](URL), **굵게**, `코드`.
+    먼저 전체를 HTML 이스케이프하므로 게시글 제목(신뢰 불가 입력)이 태그로
+    해석되지 않는다. 링크 URL은 http(s)만 인정한다."""
+    def inline(text):
+        text = html_escape(text)
+        text = re.sub(r"\[((?:\\.|[^\]\\])+)\]\((https?://[^\s)]+)\)",
+                      r'<a href="\2">\1</a>', text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+        text = re.sub(r"`((?:\\.|[^`\\])*)`", r"<code>\1</code>", text)
+        return re.sub(r"\\([\\\[\]`])", r"\1", text)  # md_escape 되돌리기
+
+    out = []
+    in_list = False
+    for line in body.splitlines():
+        is_item = line.startswith("- ")
+        if in_list and not is_item:
+            out.append("</ul>")
+        if is_item and not in_list:
+            out.append("<ul>")
+        in_list = is_item
+        if is_item:
+            out.append(f"<li>{inline(line[2:])}</li>")
+        elif line.startswith("## "):
+            out.append(f"<h3>{inline(line[3:])}</h3>")
+        elif line.strip():
+            out.append(f"<p>{inline(line)}</p>")
+    if in_list:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
+def notify_email(title: str, body: str):
+    """이메일 알림(선택). SMTP_USER / SMTP_PASSWORD / MAIL_TO env(전부 Actions
+    Secret에서만 주입) 중 하나라도 비어 있으면 아무것도 하지 않는다.
+
+    수신자 주소는 개인정보라 레포(퍼블릭)에 두지 않고 MAIL_TO Secret에 쉼표로
+    구분해 넣는다. 수신자는 SMTP 봉투(to_addrs)로만 지정하고 헤더에는 발신자만
+    적는다(BCC) — 수신자끼리 서로의 주소를 보지 못한다.
+
+    실패 처리는 notify_discord와 같은 이유·같은 방식: 주 채널(GitHub Issue)을
+    죽이지 않게 삼키고, 예외 메시지에는 주소·서버 응답이 들어 있으므로 예외
+    타입만 출력한다."""
+    user = os.environ.get("SMTP_USER", "").strip()
+    password = os.environ.get("SMTP_PASSWORD", "").strip()
+    to = [a for a in re.split(r"[,\s]+", os.environ.get("MAIL_TO", "")) if a]
+    if not (user and password and to):
+        return
+    msg = EmailMessage()
+    msg["Subject"] = title
+    msg["From"] = user
+    msg["To"] = user
+    msg.set_content(body)
+    msg.add_alternative(md_to_html(body), subtype="html")
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+            smtp.login(user, password)
+            smtp.send_message(msg, from_addr=user, to_addrs=to)
+        print(f"이메일 알림 전송 완료 ({len(to)}명)")
+    except (smtplib.SMTPException, OSError) as e:
+        print(f"이메일 알림 실패({type(e).__name__}) — 이슈 생성은 계속 진행",
+              file=sys.stderr)
+
+
 def write_output(has_new: bool, title: str, body: str, is_error: bool = False,
                  notify: bool = True):
     """불리언 플래그만 GITHUB_OUTPUT으로 내보내고,
@@ -439,12 +605,13 @@ def write_output(has_new: bool, title: str, body: str, is_error: bool = False,
     신뢰 불가한 게시글 텍스트가 ${{ }} 치환·heredoc 파싱을 전혀 거치지 않는다.
     is_error: 수집 실패 등 제목이 고정인 이슈 — 워크플로가 이 플래그를 보고
     동일 제목의 open 이슈가 있으면 새 이슈 대신 댓글을 단다(중복 방지).
-    notify: False면 Discord 전송만 생략(반복 오류 dedup용 — 이슈는 그대로)."""
+    notify: False면 Discord·이메일 전송만 생략(반복 오류 dedup용 — 이슈는 그대로)."""
     if has_new:
         TITLE_PATH.write_text(title + "\n", encoding="utf-8")
         BODY_PATH.write_text(body + "\n", encoding="utf-8")
         if notify:
             notify_discord(title, body)
+            notify_email(title, body)
 
     out = os.environ.get("GITHUB_OUTPUT")
     if not out:

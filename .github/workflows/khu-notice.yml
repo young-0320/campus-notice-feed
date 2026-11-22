@@ -42,6 +42,11 @@ jobs:
           # Discord 알림(선택). Secret 미설정이면 빈 값 → 파이썬이 전송 생략.
           # URL은 Secret에만 존재 — 워크플로/코드/로그에 평문으로 두지 않는다.
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          # 이메일 알림(선택). 셋 중 하나라도 없으면 파이썬이 전송 생략.
+          # 수신자 주소(MAIL_TO)도 개인정보라 Secret에만 둔다.
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python check_notices.py
 
       - name: 신규 공지 이슈 생성

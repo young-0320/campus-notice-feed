@@ -3,11 +3,10 @@
 seen.json 키가 표시명이던 구버전 파일이 불변 키(boardId:menuNo)로
 이관되는지, 이관 후 재실행이 no-op인지 검증한다.
 """
-from check_notices import BOARDS, TOTALS_KEY, board_key, migrate_seen
+from check_notices import LEGACY_KEYS, TOTALS_KEY, migrate_seen
 
-# BOARDS의 첫 항목을 그대로 사용해 코드 상수와 어긋나지 않게 한다
-NAME, BOARD, MENU = BOARDS[0]
-KEY = board_key(BOARD, MENU)
+# LEGACY_KEYS의 첫 항목을 그대로 사용해 코드 상수와 어긋나지 않게 한다
+NAME, KEY = next(iter(LEGACY_KEYS.items()))
 
 
 def test_migrates_old_name_keys():

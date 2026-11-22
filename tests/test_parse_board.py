@@ -52,3 +52,15 @@ def test_broken_selector_triggers_health_check():
     # main()의 급감 판정과 동일한 식
     expected = min(total, PAGE_SIZE)
     assert len(rows) < expected * PARSE_RATE_MIN
+
+
+def test_campus_tag_and_syndicated_rows():
+    """라이브 학과 사이트 구조: 캠퍼스 태그(span.txtBox01)는 제목에 남기되
+    tag 필드로도 따로 뽑고, 본부 공지 행(다른 호스트 링크·onclick 없음)은
+    글로 세지 않는다. 태그가 없는 글의 tag 는 빈 문자열."""
+    rows, total = parse_board(load("table_tagged.html"))
+    assert total == 2
+    assert [r["id"] for r in rows] == ["559072", "559001"]
+    assert rows[0]["title"] == "All AI 홍보영상 공모전 개최 안내"
+    assert rows[0]["tag"] == "All"
+    assert rows[1]["tag"] == ""

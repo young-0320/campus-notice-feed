@@ -72,16 +72,21 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 대학 공지 게시판을 3일마다 크롤링해 신규 글을 GitHub Issue로 알리는
 서버리스 봇. GitHub Actions에서만 돈다(서버·비용 없음). **현재는 경희대
-전자공학과(ee.khu.ac.kr) 5개 게시판 전용**이지만, 레포명(`campus-notice-feed`)
-그대로 **타 학과/학교로 일반화하는 게 최종 방향**이다.
+국제캠 19개 사이트(전자공학 + 공과대학·생명과학대학) 47개 게시판**을 감시한다.
+국제캠 전체 → 서울캠 → 타 학교 순으로 넓히는 게 방향이다.
+기능 전체와 확장 절차는 `log.md` 맨 아래 "기능 목록"·"기능 추가 방식".
 
 ## 구조 한눈에
 
-- `check_notices.py` — 크롤링(`fetch_board`) → 신규 판별(`seen.json` 비교)
-  → 이슈 본문 생성(`main`) → 제목/본문을 **파일로** 출력(`write_output`).
+- `check_notices.py` — 설정 로드(`load_sites`) → 크롤링(`fetch_board`) →
+  신규 판별(`seen.json` 비교) → 필터·교차 게시 병합 → 이슈 본문 생성(`main`)
+  → 제목/본문을 **파일로** 출력 + Discord·이메일 전송(`write_output`).
+- `sites.toml` — 감시 대상 사이트·게시판·`filter`(코드 밖).
+- `sitecheck.py` — `inspect <url>`(새 사이트 형식 검사 + sites.toml 초안),
+  `validate`(등록 게시판 라이브 검증). 사이트를 넣거나 파서를 고칠 때 쓴다.
 - `.github/workflows/khu-notice.yml` — cron 실행, github-script가 파일을
   읽어 이슈 생성, `seen.json` 커밋.
-- `keywords.txt` — ⭐ 하이라이트 키워드(코드 밖). `seen.json` — 상태(봇이 커밋).
+- `keywords.txt` — ⭐ 하이라이트 겸 필터 키워드(코드 밖). `seen.json` — 상태(봇이 커밋).
 
 ## 이미 반영된 설계 결정 (되돌리지 말 것)
 
@@ -104,16 +109,30 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
    `requests.post(json=...)` 전송, 실패는 삼키고 예외 타입+상태코드만 출력
    (URL이 예외 메시지에 포함되므로 예외 본문 출력 금지).
 
+7. **감시 대상은 `sites.toml`** — 사이트 추가는 설정만으로. seen.json 키는
+   사이트를 포함하지 않는 `boardId:menuNo` 그대로다(menuNo 대역이 사이트마다
+   달라 충돌 없음 — `load_sites` 가 중복을 검사한다). 키 형식을 바꾸지 말 것.
+8. **필터는 사이트별 `filter`**(`all` 기본 / `keywords`). 키워드 목록은
+   `keywords.txt` 하나를 ⭐ 과 필터가 같이 쓴다. 영문 키워드는 단어 경계,
+   한글은 부분일치.
+9. **이메일은 Gmail SMTP + Secret 3개**(`SMTP_USER`/`SMTP_PASSWORD`/`MAIL_TO`).
+   수신자 주소는 레포에 두지 않는다. 숨은참조 발송, 실패 처리는 Discord와 동일.
+10. **교차 게시 병합은 실행 내·제목 완전일치**(캠퍼스 태그만 뗀다).
+
 ## 다음 후보 (우선순위 순, 상세는 log.md "미해결")
 
-1. `is_hot` 부분일치 오탐 개선(단어 경계).
-2. 알림 채널 추가(Telegram 등) — Webhook은 반드시 Actions Secrets로.
-3. (일반화 단계) 게시판/학교 설정을 config로 분리(`site.toml`, `tomllib`).
+1. 국제캠 나머지 사이트 등록 — 검사 결과는 log.md 9번 표. 게시판 선별과
+   `filter` 값은 사용자에게 확인.
+2. 한글 키워드 부분일치 오탐, 교차 게시 병합의 유사 제목 처리.
+3. 알림 채널 추가(Telegram 등) — 자격 증명은 반드시 Actions Secrets로.
+4. 다른 CMS 사이트(서울캠 일부 추정) — 절차는 log.md "다른 CMS 추가".
 
 ## 작업 규칙
 
 - **커밋 저자는 Young 단독**(git config에 설정됨). Claude 공동저자 트레일러
   붙이지 말 것.
 - **push는 사용자 확인 후에만.** 현재 로컬 커밋이 origin보다 앞서 있을 수 있음.
-- 로컬 테스트용 venv: 사용자 스크래치패드에 있음(requests/bs4 설치됨).
-  실사이트는 네트워크 차단이라 mock HTML로 파서 로직을 검증해왔다.
+- 테스트: `python -m pytest`(네트워크 불필요, fixtures mock HTML).
+- 실사이트 확인: `python sitecheck.py validate`. 클라우드 세션에서는 개인
+  환경 `campus-notice-feed` 가 조사한 khu.ac.kr 호스트 40곳을 허용한다
+  (Default 환경은 차단). 새 호스트는 그 환경의 허용 목록에 추가해야 한다.

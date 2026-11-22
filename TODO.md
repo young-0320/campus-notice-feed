@@ -30,16 +30,24 @@
 
 ### 2. 일반화 (KHU 전용 → 타학과/타학교)
 
-- 1단계(같은 CMS 학과 추가): 데이터만 `site.toml`로 분리
-  (base / title_prefix / boards). `tomllib` 무의존. 워크플로 `name`·파일명도
-  이때 중립화. keywords.txt는 평문 유지.
+- ~~1단계(같은 CMS 학과 추가): 데이터만 `sites.toml`로 분리~~ ✅ 완료
+  (2026-11-22, log.md 9번). 공대·생명대 18개 사이트 추가. 남은 것:
+  - [ ] 국제캠 나머지 사이트 등록(전자정보·소융·응용과학·국제·외국어·예디).
+    검사 결과는 log.md 9번 표. 게시판 선별과 `filter` 값만 정하면 된다.
+  - [ ] 워크플로 `name`("KHU EE 공지 감시")·파일명 중립화 — 이름을 바꾸면
+    README의 실행 안내도 같이 고칠 것.
 - 2단계(다른 CMS 학교 추가 시에야): `parse_board`를 사이트 어댑터
   (셀렉터 + ID_RE + URL 템플릿 묶음)로 추상화. 지금 미리 하면 과설계.
+  절차는 log.md "기능 추가 방식 > 다른 CMS 추가".
 
 ### 3. 알림 채널 다변화 (Discord / Telegram) — Discord ✅ 완료 (2026-07-11)
 
 Discord는 `feat/stable-keys-discord` 브랜치에서 구현(보안 전제는 log.md
-7번에 명문화, 웹훅 준비 절차는 README로 이동). Telegram 등은 남음.
+7번에 명문화, 웹훅 준비 절차는 README로 이동). 이메일(Gmail SMTP)은
+2026-11-22 완료(log.md 12번). Telegram 등은 남음.
+
+- [ ] **이메일 준비(사용자 몫)**: `SMTP_USER`·`SMTP_PASSWORD`·`MAIL_TO`
+  Secret 등록 — 절차는 README "이메일 알림 받기".
 
 - [ ] **웹훅 준비(사용자 몫)**: `DISCORD_WEBHOOK` Secret 등록 — 절차는
   README "Discord 알림 받기" 참고. URL은 **Secret에만**.

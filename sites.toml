@@ -1,0 +1,199 @@
+# 감시 대상 사이트 목록. check_notices.py 가 위에서 아래 순서로 순회한다.
+#
+# [[site]] 하나 = 홈페이지 하나.
+#   name      이슈·메일에 표시되는 이름. 자유롭게 바꿔도 된다(알림 이력과 무관).
+#   base      "https://<호스트>/<사이트코드>" — 게시판 주소
+#             https://ee.khu.ac.kr/ee25/user/bbs/BMSR00040/list.do?menuNo=21700019
+#             에서 "/user/" 앞부분.
+#   filter    "all"      = 신규 글을 전부 알림 (기본값 — 생략하면 all)
+#             "keywords" = 제목에 keywords.txt 의 키워드가 있는 글만 알림
+#   page_size (선택) 한 페이지 글 수. 기본 30. 사이트가 30건 요청을 무시하고
+#             더 적게 돌려줄 때만 그 수로 맞춘다(sitecheck.py 가 알려준다).
+#   boards    ["표시명", "boardId", "menuNo"] 목록. 표시명은 자유, 뒤 둘은 주소에서.
+#
+# 새 사이트를 넣기 전에:  python sitecheck.py inspect https://<호스트>
+# 넣은 뒤 확인:          python sitecheck.py validate
+# 같은 공지가 여러 사이트에 올라오면 위쪽 사이트의 것 하나만 알린다.
+
+# ── 전자정보대학 ─────────────────────────────────────────────────────────
+[[site]]
+name = "전자공학"
+base = "https://ee.khu.ac.kr/ee25"
+filter = "all"
+boards = [
+  ["소식", "BMSR00044", "21700021"],
+  ["학사/장학", "BMSR00040", "21700019"],
+  ["취업정보/대외활동", "BMSR00040", "21700020"],
+  ["행사", "BMSR00044", "21700046"],
+  ["기타공지", "BMSR00040", "21700022"],
+]
+
+# ── 공과대학 ────────────────────────────────────────────────────────────
+[[site]]
+name = "공과대학"
+base = "https://eng.khu.ac.kr/eng_kor"
+filter = "all"
+boards = [
+  ["공대마당", "BMSR00040", "17100020"],
+  ["연구 참여생 모집", "BMSR00040", "17100042"],
+]
+
+[[site]]
+name = "기계공학"
+base = "https://me.khu.ac.kr/me_kor"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17300015"],
+  ["학부소식", "BMSR00040", "17300016"],
+  ["학회/세미나", "BMSR00040", "17300017"],
+  ["알림판", "BMSR00040", "17300019"],
+]
+
+[[site]]
+name = "산업경영공학"
+base = "https://ie.khu.ac.kr/ie"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17400015"],
+  ["교내외 프로그램", "BMSR00040", "17400018"],
+]
+
+[[site]]
+name = "원자력공학"
+base = "https://ne.khu.ac.kr/ne"
+filter = "all"
+boards = [
+  ["게시판", "BMSR00040", "17500023"],
+  ["알림판", "BMSR00040", "17500025"],
+  ["인력양성프로그램", "BMSR00040", "17500029"],
+]
+
+[[site]]
+name = "화학공학"
+base = "https://chemeng.khu.ac.kr/chemeng"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17600017"],
+  ["대학원 공지사항", "BMSR00040", "17600015"],
+]
+
+[[site]]
+name = "신소재공학"
+base = "https://mse.khu.ac.kr/amie"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17700015"],
+  ["학과소식", "BMSR00040", "17700030"],
+  ["학회/세미나", "BMSR00040", "17700016"],
+  ["알림판", "BMSR00040", "17700018"],
+]
+
+[[site]]
+name = "사회기반시스템공학"
+base = "https://civileng.khu.ac.kr/civileng"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17800015"],
+  ["공지사항", "BMSR00040", "17800016"],
+  ["알림판", "BMSR00040", "17800019"],
+]
+
+[[site]]
+name = "건축공학"
+base = "https://archieng.khu.ac.kr/archieng"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "17900015"],
+  ["장학", "BMSR00040", "17900016"],
+  ["알림판", "BMSR00040", "17900018"],
+]
+
+[[site]]
+name = "환경공학"
+base = "https://env.khu.ac.kr/env"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "18000015"],
+  ["교내외 프로그램", "BMSR00040", "18000017"],
+]
+
+[[site]]
+name = "건축학"
+base = "https://archi.khu.ac.kr/archi"
+filter = "all"
+boards = [
+  ["학생광장", "BMSR00040", "18100018"],
+  ["공모전", "BMSR00040", "18100019"],
+  ["기타공지", "BMSR00040", "18100021"],
+  ["알림판", "BMSR00040", "18100022"],
+]
+
+# ── 생명과학대학 ─────────────────────────────────────────────────────────
+[[site]]
+name = "생명과학대학"
+base = "https://cls.khu.ac.kr/cls"
+filter = "all"
+boards = [
+  ["공지사항", "BMSR00040", "11600041"],
+  ["장학정보", "BMSR00040", "11600043"],
+  ["소식 및 행사", "BMSR00040", "11600044"],
+]
+
+[[site]]
+name = "유전생명공학"
+base = "https://genetech.khu.ac.kr/genetech"
+filter = "all"
+boards = [
+  ["열린광장", "BMSR00040", "11700122"],
+]
+
+[[site]]
+name = "식품생명공학"
+base = "https://fst.khu.ac.kr/fst"
+filter = "all"
+boards = [
+  ["공지사항", "BMSR00040", "11800057"],
+  ["열린광장", "BMSR00040", "11800058"],
+]
+
+[[site]]
+name = "한방생명공학"
+base = "https://ommp.khu.ac.kr/ommp"
+filter = "all"
+boards = [
+  ["열린광장", "BMSR00040", "11900051"],
+]
+
+[[site]]
+name = "식물환경신소재공학"
+base = "https://ecosystem.khu.ac.kr/ecosystem"
+filter = "all"
+boards = [
+  ["열린광장", "BMSR00040", "12000031"],
+]
+
+[[site]]
+name = "원예생명공학"
+base = "https://hort.khu.ac.kr/hort"
+filter = "all"
+boards = [
+  ["열린광장", "BMSR00040", "12100040"],
+]
+
+[[site]]
+name = "스마트팜과학"
+base = "https://smartfarmsci.khu.ac.kr/smartfarm"
+filter = "all"
+boards = [
+  ["공지사항", "BMSR00040", "9400021"],
+  ["열린광장", "BMSR00040", "9400073"],
+]
+
+[[site]]
+name = "융합바이오신소재공학"
+base = "https://cbam.khu.ac.kr/bio"
+filter = "all"
+boards = [
+  ["커뮤니티", "BMSR00040", "19500029"],
+  ["News", "BMSR00040", "19500032"],
+]
